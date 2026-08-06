@@ -38,6 +38,22 @@ From there, `Runtime.evaluate` drives the UI and `Page.captureScreenshot` confir
 
 `electron.vite.config.ts` builds `src/main`, `src/preload`, and `src/renderer` separately. `src/shared/` is compiled into **both** the node and web TS projects (it appears in the `include` of `tsconfig.node.json` and `tsconfig.web.json`, and is aliased to `@shared` in the renderer). Anything main and renderer both need — types, time math, the schedule generator — belongs there. Renderer code imports it as `@shared/types`; main and preload use relative paths (`../shared/types`), because the alias is only registered for the renderer build.
 
+The renderer target has **two HTML entries**: `index.html` (the app window) and `widget.html` (the menu bar popover), declared as separate rollup inputs. They are separate documents with separate React roots, so the popover never loads the panes, the reducer or `DataContext`.
+
+### The menu bar widget
+
+`src/main/tray.ts` owns a `Tray` plus a frameless, transparent, non-focusable popover window. Hovering the icon shows the panel; clicking it opens the app window.
+
+The key inversion from the rest of the app: **this summary is derived in main, not the renderer.** `buildWidgetSummary()` in `src/shared/widget.ts` is a pure function over `AppData`, and main feeds it from `loadData()`, which returns the same in-memory document the renderer is editing. That means the widget keeps working with the app window closed. The renderer never computes it — it only receives `WidgetSummary` snapshots on the `widget:update` channel and renders them.
+
+Three things that are easy to get wrong here:
+
+- **Hover-out is decided by polling the cursor** (`screen.getCursorScreenPoint()` every 120 ms against the tray and popover rects), not by DOM `mouseleave` — a non-focusable window does not deliver those reliably. The popover is positioned flush against the menu bar so the pointer never crosses a dead gap; the visible float is transparent CSS padding inside the window.
+- **The panel sizes itself.** A `ResizeObserver` in the renderer reports its height back over `widget:resize`, and main applies it to the window bounds. Content height varies with how many blocks are in play, so the window is sized to the content rather than the reverse.
+- **Tray hover events are macOS-only**, so `initTray()` is guarded on `process.platform === 'darwin'`. The tray title (`trayTitle()`) is deliberately near-empty: a running timer, else minutes left on the current focus block, else nothing.
+
+Main polls at 1 s while the panel is open or a timer runs, and 15 s otherwise; `data:save` also triggers a refresh so the panel never waits on the 300 ms save debounce.
+
 ### Data flow
 
 The renderer owns all state; main owns the disk.
@@ -71,6 +87,6 @@ Regeneration is **manual only** (the Generate/Regenerate button). Editing activi
 ## Conventions
 
 - **Animations use Motion (`motion/react`)** — not CSS transitions — for anything stateful: `AnimatePresence mode="wait"` for tab switches, `layout` + `AnimatePresence` for list enter/exit, `staggerChildren` variants for list and timeline reveals, `layoutId` for the sliding tab indicator, spring `whileHover`/`whileTap` on controls. `MotionConfig reducedMotion="user"` in `App.tsx` plus a `prefers-reduced-motion` block in the CSS handle accessibility.
-- **Styling is one hand-written stylesheet** (`src/renderer/src/assets/main.css`) driven by CSS custom properties on `:root` — dark OLED palette, green accent for focus, blue for parallel, amber for overflow. No CSS framework, no CSS-in-JS.
+- **Styling is hand-written CSS** driven by custom properties — dark palette, green accent for focus, blue for parallel, amber for overflow. No CSS framework, no CSS-in-JS. The palette lives in `src/renderer/src/assets/tokens.css` and nowhere else; `main.css` (app window) and `src/renderer/src/widget/widget.css` (popover) both `@import` it, because they are separate documents with separate bundles. Change a colour there, not in either stylesheet.
 - **Icons are inline SVG components** in `src/renderer/src/components/icons.tsx` (24×24 viewBox, `currentColor` stroke). No emoji as icons, no icon library dependency.
 - ESLint enforces `react-hooks` rules strictly. Two patterns this repo already resolved: mutating a ref during render is an error (assign inside an effect), and `setState` directly in an effect is an error (use the adjust-state-during-render pattern, as `JournalPane` does for date rollover).

@@ -123,6 +123,43 @@ export interface TimerAlarm {
   body: string
 }
 
+/** One schedule block, flattened for the menu bar popover. */
+export interface WidgetBlock {
+  id: string
+  name: string
+  lane: ScheduleLane
+  kind: 'activity' | 'break'
+  start: string // 'HH:mm'
+  end: string // 'HH:mm'
+  /** whole minutes until this block ends (if running) or starts (if upcoming) */
+  minutesAway: number
+  /** 0..1 through the block; 0 for anything not yet started */
+  progress: number
+  overflow: boolean
+}
+
+/**
+ * Everything the menu bar popover renders, derived in the main process so the
+ * widget keeps working while the app window is closed. Rebuilt on every tick —
+ * it is a snapshot, never stored.
+ */
+export interface WidgetSummary {
+  /** bumped each time the popover is shown, so the renderer can replay its entry animation */
+  revision: number
+  clock: string // 'h:mm', 12-hour
+  meridiem: string // 'AM' | 'PM'
+  dateLabel: string
+  /** false when today has no generated schedule at all */
+  hasSchedule: boolean
+  /** in progress right now — up to one per lane, since the two lanes overlap by design */
+  now: WidgetBlock[]
+  next: WidgetBlock | null
+  /** true when a schedule exists but everything in it is behind us */
+  dayComplete: boolean
+  timer: { blockId: string; name: string; display: string; paused: boolean } | null
+  checklist: { done: number; total: number }
+}
+
 export interface AppData {
   version: 3
   activeTimer: ActiveTimer | null

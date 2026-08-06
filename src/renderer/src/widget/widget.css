@@ -1,0 +1,270 @@
+@import '../assets/tokens.css';
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  background: transparent;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+  overflow: hidden;
+}
+
+/*
+ * The window sits flush against the menu bar so the pointer can travel from the
+ * icon to the card without leaving it. This transparent padding is what makes
+ * the card *look* like it floats below the bar.
+ */
+.widget-shell {
+  padding: 7px 10px 12px;
+}
+
+/* a real button: the whole card is one target that opens the app */
+.widget-card {
+  display: block;
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  /* drawn here rather than by the OS, which would shadow the transparent padding */
+  box-shadow:
+    0 10px 28px rgba(0, 0, 0, 0.55),
+    0 2px 6px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.widget-card:hover {
+  border-color: var(--border-strong);
+}
+
+.widget-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* header ------------------------------------------------------------------ */
+
+.widget-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 11px 13px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.widget-clock {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.widget-clock strong {
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.widget-meridiem {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.widget-date {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* sections ---------------------------------------------------------------- */
+
+.widget-body {
+  padding: 10px 13px 4px;
+}
+
+.widget-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.widget-label + .widget-label,
+.widget-row + .widget-label {
+  margin-top: 12px;
+}
+
+.widget-row {
+  padding-bottom: 9px;
+}
+
+.widget-row-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* the lane's colour is the only thing distinguishing focus from parallel here */
+.widget-lane {
+  flex: none;
+  width: 3px;
+  height: 15px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.widget-row.parallel .widget-lane {
+  background: var(--parallel);
+}
+
+.widget-row.break .widget-lane {
+  background: var(--text-muted);
+}
+
+.widget-row.overflow .widget-lane {
+  background: var(--warn);
+}
+
+.widget-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.widget-row.upcoming .widget-name {
+  color: var(--text-secondary);
+  font-weight: 450;
+}
+
+.widget-away {
+  flex: none;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.widget-row.focus .widget-away {
+  color: var(--accent);
+}
+
+.widget-row.parallel .widget-away {
+  color: var(--parallel);
+}
+
+.widget-track {
+  margin: 6px 0 0 11px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.widget-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.widget-row.parallel .widget-fill {
+  background: var(--parallel);
+}
+
+.widget-range {
+  margin: 4px 0 0 11px;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* empty states ------------------------------------------------------------ */
+
+.widget-empty {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 14px 13px 16px;
+  color: var(--text-muted);
+}
+
+.widget-empty-text {
+  min-width: 0;
+}
+
+.widget-empty-text strong {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--text-secondary);
+}
+
+.widget-empty-text span {
+  font-size: 11px;
+}
+
+/* footer ------------------------------------------------------------------ */
+
+.widget-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 13px;
+  border-top: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.16);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.widget-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.widget-chip.running {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.widget-chip.paused {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.widget-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

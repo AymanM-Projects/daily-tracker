@@ -7,11 +7,13 @@ import type { TimerAlarm } from '../shared/types'
 import { loadData, scheduleSave, flushPendingSave } from './store'
 import { getStatus, setApiKey } from './ai-config'
 import { testConnection } from './ai'
+import { destroyTray, initTray, refreshWidget } from './tray'
 
 let alarmTimeout: NodeJS.Timeout | null = null
+let mainWindow: BrowserWindow | null = null
 
 function createWindow(): void {
-  const mainWindow = new BrowserWindow({
+  const win = new BrowserWindow({
     width: 360,
     height: 560,
     minWidth: 320,
@@ -29,23 +31,37 @@ function createWindow(): void {
     }
   })
 
+  mainWindow = win
+
   if (loadData().settings.alwaysOnTop) {
-    mainWindow.setAlwaysOnTop(true, 'floating')
+    win.setAlwaysOnTop(true, 'floating')
   }
 
-  mainWindow.on('ready-to-show', () => {
-    mainWindow.show()
+  win.on('ready-to-show', () => win.show())
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null
   })
 
-  mainWindow.webContents.setWindowOpenHandler((details) => {
+  win.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    win.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    win.loadFile(join(__dirname, '../renderer/index.html'))
+  }
+}
+
+/** Reopen or refocus the app window — from the dock, or from the menu bar icon. */
+function showMainWindow(): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
+  } else {
+    createWindow()
   }
 }
 
@@ -59,6 +75,8 @@ app.whenReady().then(() => {
   ipcMain.handle('data:load', () => loadData())
   ipcMain.handle('data:save', (_event, data: AppData) => {
     scheduleSave(data)
+    // the menu bar reads the same in-memory document, so it must not wait for the debounce
+    refreshWidget()
   })
   ipcMain.handle('window:set-always-on-top', (event, flag: boolean) => {
     BrowserWindow.fromWebContents(event.sender)?.setAlwaysOnTop(flag, 'floating')
@@ -87,13 +105,20 @@ app.whenReady().then(() => {
 
   createWindow()
 
-  app.on('activate', function () {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
-  })
+  // Tray hover events (`mouse-enter`) are macOS-only, and so is this widget.
+  if (process.platform === 'darwin') {
+    initTray(showMainWindow)
+  }
+
+  app.on('activate', showMainWindow)
 })
 
 app.on('before-quit', () => {
   flushPendingSave()
+})
+
+app.on('will-quit', () => {
+  destroyTray()
 })
 
 app.on('window-all-closed', () => {

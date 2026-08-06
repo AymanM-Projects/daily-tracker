@@ -1,6 +1,6 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import type { AiStatus, AiTestResult, AppData, TimerAlarm } from '../shared/types'
+import type { AiStatus, AiTestResult, AppData, TimerAlarm, WidgetSummary } from '../shared/types'
 
 const api = {
   loadData: (): Promise<AppData> => ipcRenderer.invoke('data:load'),
@@ -12,7 +12,18 @@ const api = {
   aiStatus: (): Promise<AiStatus> => ipcRenderer.invoke('ai:status'),
   aiSetKey: (key: string | null): Promise<AiStatus> => ipcRenderer.invoke('ai:set-key', key),
   aiTest: (candidateKey?: string): Promise<AiTestResult> =>
-    ipcRenderer.invoke('ai:test', candidateKey)
+    ipcRenderer.invoke('ai:test', candidateKey),
+  // menu bar popover — main pushes, the widget renderer only listens
+  onWidgetUpdate: (callback: (summary: WidgetSummary) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, summary: WidgetSummary): void => callback(summary)
+    ipcRenderer.on('widget:update', handler)
+    return () => {
+      ipcRenderer.removeListener('widget:update', handler)
+    }
+  },
+  widgetReady: (): Promise<void> => ipcRenderer.invoke('widget:ready'),
+  widgetResize: (height: number): Promise<void> => ipcRenderer.invoke('widget:resize', height),
+  widgetOpenApp: (): Promise<void> => ipcRenderer.invoke('widget:open-app')
 }
 
 if (process.contextIsolated) {
