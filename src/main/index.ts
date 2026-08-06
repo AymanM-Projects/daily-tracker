@@ -66,7 +66,8 @@ function showMainWindow(): void {
 }
 
 app.whenReady().then(() => {
-  electronApp.setAppUserModelId('com.daily-tracker')
+  // must match appId in electron-builder.yml
+  electronApp.setAppUserModelId('com.ayman.daily-tracker')
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)

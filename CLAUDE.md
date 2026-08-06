@@ -17,6 +17,10 @@ npm run build        # typecheck + electron-vite build
 npm run build:mac    # package a .app via electron-builder
 ```
 
+`build:mac` writes `dist/mac-arm64/daily-tracker.app` plus a `.dmg` and `.zip`. It is **unsigned** — there is no Developer ID, so electron-builder skips signing. A locally built app opens fine; one that has been downloaded or AirDropped picks up a quarantine flag and needs right-click → Open once.
+
+Two things in `electron-builder.yml` that must not drift: `productName: daily-tracker` decides `app.getPath('userData')`, so renaming it strands the existing data file; and `asarUnpack: resources/**` is what lets `nativeImage.createFromPath` read the tray icons at runtime.
+
 There is no test framework in this project. Verify changes by running the app (see below), not by running tests.
 
 ### Launching Electron from this environment

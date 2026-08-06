@@ -4,4 +4,6 @@ out
 .DS_Store
 .eslintcache
 *.tsbuildinfo
+# intermediate for build/icon.icns; regenerate rather than commit
+build/icon.iconset
 *.log*

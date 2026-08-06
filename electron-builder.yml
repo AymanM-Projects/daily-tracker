@@ -1,4 +1,6 @@
-appId: com.electron.app
+appId: com.ayman.daily-tracker
+# Do NOT rename productName: it decides app.getPath('userData'), so changing it
+# would strand the existing daily-tracker-data.json.
 productName: daily-tracker
 directories:
   buildResources: build
@@ -19,6 +21,7 @@ nsis:
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
 mac:
+  category: public.app-category.productivity
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     - NSCameraUsageDescription: Application requests access to the device's camera.
