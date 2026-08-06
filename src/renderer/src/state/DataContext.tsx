@@ -12,14 +12,17 @@ import type {
   Activity,
   ActivityMode,
   AppData,
+  BlockStatus,
   ChecklistItem,
   DateKey,
   DayData,
+  JournalEntry,
   Priority,
   ScheduleBlock,
   Settings
 } from '@shared/types'
 import { defaultAppData, getDay } from '@shared/defaults'
+import { elapsedMinutes } from '@shared/timer'
 import { todayKey } from '@shared/time'
 
 export interface State {
@@ -46,9 +49,69 @@ export type Action =
   | { type: 'addJournalEntry'; date: DateKey; text: string }
   | { type: 'setSchedule'; date: DateKey; blocks: ScheduleBlock[]; unscheduled: string[] }
   | { type: 'updateSettings'; patch: Partial<Settings> }
+  | { type: 'startTimer'; date: DateKey; blockId: string }
+  | { type: 'pauseTimer' }
+  | { type: 'resumeTimer' }
+  | { type: 'cancelTimer' }
+  | { type: 'completeTimer' }
+  | { type: 'setBlockStatus'; date: DateKey; blockId: string; status: BlockStatus }
+  | { type: 'setBlockActualMinutes'; date: DateKey; blockId: string; minutes: number | null }
 
 function withDay(data: AppData, date: DateKey, mutate: (day: DayData) => DayData): AppData {
   return { ...data, days: { ...data.days, [date]: mutate(getDay(data, date)) } }
+}
+
+function mapBlock(
+  day: DayData,
+  blockId: string,
+  mutate: (block: ScheduleBlock) => ScheduleBlock
+): DayData {
+  if (!day.schedule) return day
+  return { ...day, schedule: day.schedule.map((b) => (b.id === blockId ? mutate(b) : b)) }
+}
+
+/**
+ * The block auto-journal rule, mirroring `toggleChecklistItem`: marking a block
+ * done logs it, and moving it back to planned retracts exactly that entry.
+ * Manual entries and checklist-linked entries are never touched.
+ */
+function syncBlockJournal(
+  day: DayData,
+  block: ScheduleBlock,
+  status: BlockStatus,
+  actualMinutes: number | null
+): JournalEntry[] {
+  const without = day.journal.filter((e) => e.scheduleBlockId !== block.id)
+  if (status !== 'done') return without
+  const took = actualMinutes !== null ? ` (${actualMinutes}m)` : ''
+  return [
+    ...without,
+    {
+      id: crypto.randomUUID(),
+      kind: 'auto' as const,
+      text: `Completed: ${block.name}${took}`,
+      timestamp: new Date().toISOString(),
+      scheduleBlockId: block.id
+    }
+  ]
+}
+
+/** Apply a status change plus its journal consequence in one place. */
+function applyBlockStatus(
+  data: AppData,
+  date: DateKey,
+  blockId: string,
+  status: BlockStatus,
+  actualMinutes?: number | null
+): AppData {
+  return withDay(data, date, (day) => {
+    const block = day.schedule?.find((b) => b.id === blockId)
+    // breaks are not markable
+    if (!block || block.kind === 'break') return day
+    const actual = actualMinutes === undefined ? block.actualMinutes : actualMinutes
+    const withStatus = mapBlock(day, blockId, (b) => ({ ...b, status, actualMinutes: actual }))
+    return { ...withStatus, journal: syncBlockJournal(day, block, status, actual) }
+  })
 }
 
 function reducer(state: State, action: Action): State {
@@ -176,6 +239,71 @@ function reducer(state: State, action: Action): State {
       return {
         ...state,
         data: { ...state.data, settings: { ...state.data.settings, ...action.patch } }
+      }
+    case 'startTimer':
+      // starting a new block abandons any previous run rather than stacking timers
+      return {
+        ...state,
+        data: {
+          ...state.data,
+          activeTimer: {
+            dateKey: action.date,
+            blockId: action.blockId,
+            startedAt: new Date().toISOString(),
+            accumulatedMs: 0,
+            paused: false
+          }
+        }
+      }
+    case 'pauseTimer': {
+      const t = state.data.activeTimer
+      if (!t || t.paused) return state
+      // bank the running segment, then freeze
+      return {
+        ...state,
+        data: {
+          ...state.data,
+          activeTimer: {
+            ...t,
+            accumulatedMs: t.accumulatedMs + Math.max(0, Date.now() - Date.parse(t.startedAt)),
+            paused: true
+          }
+        }
+      }
+    }
+    case 'resumeTimer': {
+      const t = state.data.activeTimer
+      if (!t || !t.paused) return state
+      return {
+        ...state,
+        data: {
+          ...state.data,
+          activeTimer: { ...t, startedAt: new Date().toISOString(), paused: false }
+        }
+      }
+    }
+    case 'cancelTimer':
+      // discard the measurement; the block keeps whatever status it had
+      return { ...state, data: { ...state.data, activeTimer: null } }
+    case 'completeTimer': {
+      const t = state.data.activeTimer
+      if (!t) return state
+      const data = applyBlockStatus(state.data, t.dateKey, t.blockId, 'done', elapsedMinutes(t))
+      return { ...state, data: { ...data, activeTimer: null } }
+    }
+    case 'setBlockStatus': {
+      const data = applyBlockStatus(state.data, action.date, action.blockId, action.status)
+      // a block being marked by hand shouldn't keep running in the background
+      const t = state.data.activeTimer
+      const clears = t && t.blockId === action.blockId && t.dateKey === action.date
+      return { ...state, data: clears ? { ...data, activeTimer: null } : data }
+    }
+    case 'setBlockActualMinutes':
+      return {
+        ...state,
+        data: withDay(state.data, action.date, (day) =>
+          mapBlock(day, action.blockId, (b) => ({ ...b, actualMinutes: action.minutes }))
+        )
       }
   }
 }

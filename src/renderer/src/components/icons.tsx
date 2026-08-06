@@ -152,6 +152,30 @@ export function AlertIcon(props: IconProps): React.JSX.Element {
   )
 }
 
+export function PlayIcon(props: IconProps): React.JSX.Element {
+  return (
+    <Svg {...props}>
+      <path d="M6 3.5v17l14-8.5z" />
+    </Svg>
+  )
+}
+
+export function PauseIcon(props: IconProps): React.JSX.Element {
+  return (
+    <Svg {...props}>
+      <path d="M9 4v16M15 4v16" />
+    </Svg>
+  )
+}
+
+export function SkipIcon(props: IconProps): React.JSX.Element {
+  return (
+    <Svg {...props}>
+      <path d="M5 4v16M19 4v16M8 12h8" />
+    </Svg>
+  )
+}
+
 export function ClockIcon(props: IconProps): React.JSX.Element {
   return (
     <Svg {...props}>

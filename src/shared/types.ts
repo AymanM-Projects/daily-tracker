@@ -55,9 +55,12 @@ export interface JournalEntry {
   text: string
   timestamp: string // ISO
   checklistItemId?: string // only on kind 'auto' — links to the checklist item
+  scheduleBlockId?: string // only on kind 'auto' — links to the schedule block
 }
 
 export type ScheduleLane = 'focus' | 'parallel'
+
+export type BlockStatus = 'planned' | 'done' | 'skipped'
 
 export interface ScheduleBlock {
   id: string
@@ -68,6 +71,20 @@ export interface ScheduleBlock {
   start: string // 'HH:mm'
   end: string // 'HH:mm'
   overflow: boolean // true if the block runs past settings.dayEnd
+  status: BlockStatus
+  actualMinutes: number | null // measured by the timer or typed in — never inferred
+}
+
+/**
+ * The running timer. Only committed on start/pause/resume/stop/complete —
+ * the ticking value is derived, never persisted (see shared/timer.ts).
+ */
+export interface ActiveTimer {
+  dateKey: DateKey
+  blockId: string
+  startedAt: string // ISO, start of the current running segment
+  accumulatedMs: number // banked from previous segments
+  paused: boolean
 }
 
 export interface Settings {
@@ -86,8 +103,16 @@ export interface DayData {
   activitySetId: string | null // which set generated this day's schedule
 }
 
+/** A single pending completion notification, owned by the main process. */
+export interface TimerAlarm {
+  at: number // epoch ms
+  title: string
+  body: string
+}
+
 export interface AppData {
-  version: 2
+  version: 3
+  activeTimer: ActiveTimer | null
   projects: Project[]
   activitySets: ActivitySet[]
   activities: Activity[]

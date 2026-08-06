@@ -1,11 +1,21 @@
 import { useEffect, useState } from 'react'
-import { motion } from 'motion/react'
+import { AnimatePresence, motion } from 'motion/react'
 import type { ScheduleBlock } from '@shared/types'
 import { generateSchedule } from '@shared/schedule'
 import { minutesNow, parseHM } from '@shared/time'
 import { useData } from '../state/DataContext'
+import { useTimer } from '../hooks/useTimer'
 import EmptyState from '../components/EmptyState'
-import { AlertIcon, CalendarIcon, CoffeeIcon, SparklesIcon } from '../components/icons'
+import BlockSheet from '../components/BlockSheet'
+import {
+  AlertIcon,
+  CalendarIcon,
+  CheckIcon,
+  CoffeeIcon,
+  PlayIcon,
+  SkipIcon,
+  SparklesIcon
+} from '../components/icons'
 
 const PX_PER_MIN = 64 / 60
 
@@ -31,9 +41,18 @@ interface LaneProps {
   dayStartMin: number
   nowMin: number | null
   className: string
+  runningId: string | null
+  onSelect: (block: ScheduleBlock) => void
 }
 
-function Lane({ blocks, dayStartMin, nowMin, className }: LaneProps): React.JSX.Element {
+function Lane({
+  blocks,
+  dayStartMin,
+  nowMin,
+  className,
+  runningId,
+  onSelect
+}: LaneProps): React.JSX.Element {
   return (
     <div className={className}>
       {blocks.map((block) => {
@@ -41,45 +60,72 @@ function Lane({ blocks, dayStartMin, nowMin, className }: LaneProps): React.JSX.
         const rawHeight = (end - start) * PX_PER_MIN - 3
         const height = Math.max(rawHeight, block.kind === 'break' ? 8 : 22)
         const current = nowMin !== null && nowMin >= start && nowMin < end
+        const running = block.id === runningId
+        const isBreak = block.kind === 'break'
         const classes = [
           'block',
-          block.kind === 'break' ? 'break' : '',
+          isBreak ? 'break' : '',
           block.lane === 'parallel' ? 'parallel' : '',
           block.overflow ? 'overflow' : '',
-          current ? 'current' : ''
+          current ? 'current' : '',
+          running ? 'running' : '',
+          block.status === 'done' ? 'is-done' : '',
+          block.status === 'skipped' ? 'is-skipped' : ''
         ]
           .filter(Boolean)
           .join(' ')
-        return (
+
+        const body = isBreak ? (
+          height >= 15 && (
+            <>
+              <CoffeeIcon size={11} />
+              <span className="block-name">Break</span>
+            </>
+          )
+        ) : (
+          <>
+            <span className="block-name">{block.name}</span>
+            {height >= 34 && (
+              <span className="block-time">
+                {block.actualMinutes !== null
+                  ? `${block.start}–${block.end} · took ${block.actualMinutes}m`
+                  : `${block.start}–${block.end}`}
+              </span>
+            )}
+            <span className="block-flags">
+              {running && <PlayIcon size={11} />}
+              {block.status === 'done' && <CheckIcon size={11} />}
+              {block.status === 'skipped' && <SkipIcon size={11} />}
+              {block.overflow && (
+                <span title="Runs past your day end">
+                  <AlertIcon size={11} />
+                </span>
+              )}
+            </span>
+          </>
+        )
+
+        // breaks aren't markable, so they stay non-interactive
+        return isBreak ? (
           <motion.div
             key={block.id}
             className={classes}
             variants={blockVariants}
             style={{ top: (start - dayStartMin) * PX_PER_MIN, height }}
           >
-            {block.kind === 'break' ? (
-              height >= 15 && (
-                <>
-                  <CoffeeIcon size={11} />
-                  <span className="block-name">Break</span>
-                </>
-              )
-            ) : (
-              <>
-                <span className="block-name">{block.name}</span>
-                {height >= 34 && (
-                  <span className="block-time">
-                    {block.start}–{block.end}
-                  </span>
-                )}
-                {block.overflow && (
-                  <span className="block-flag" title="Runs past your day end">
-                    <AlertIcon size={11} />
-                  </span>
-                )}
-              </>
-            )}
+            {body}
           </motion.div>
+        ) : (
+          <motion.button
+            key={block.id}
+            className={classes}
+            variants={blockVariants}
+            style={{ top: (start - dayStartMin) * PX_PER_MIN, height }}
+            onClick={() => onSelect(block)}
+            aria-label={`${block.name}, ${block.start} to ${block.end}, ${block.status}`}
+          >
+            {body}
+          </motion.button>
         )
       })}
     </div>
@@ -89,7 +135,9 @@ function Lane({ blocks, dayStartMin, nowMin, className }: LaneProps): React.JSX.
 function SchedulePane(): React.JSX.Element {
   const { state, today, activities, settings, dispatch } = useData()
   const date = state.activeDate
+  const timer = useTimer()
   const [nowMin, setNowMin] = useState(minutesNow())
+  const [selectedId, setSelectedId] = useState<string | null>(null)
 
   useEffect(() => {
     const interval = setInterval(() => setNowMin(minutesNow()), 30_000)
@@ -107,6 +155,7 @@ function SchedulePane(): React.JSX.Element {
   }
 
   const blocks = today.schedule ?? []
+  const selectedBlock = blocks.find((b) => b.id === selectedId) ?? null
   const focusBlocks = blocks.filter((b) => b.lane === 'focus')
   const parallelBlocks = blocks.filter((b) => b.lane === 'parallel')
   const hasParallel = parallelBlocks.length > 0
@@ -227,6 +276,8 @@ function SchedulePane(): React.JSX.Element {
                 blocks={focusBlocks}
                 dayStartMin={dayStartMin}
                 nowMin={showNowLine ? nowMin : null}
+                runningId={timer?.block.id ?? null}
+                onSelect={(b) => setSelectedId(b.id)}
                 className="lane"
               />
               {hasParallel && (
@@ -234,6 +285,8 @@ function SchedulePane(): React.JSX.Element {
                   blocks={parallelBlocks}
                   dayStartMin={dayStartMin}
                   nowMin={showNowLine ? nowMin : null}
+                  runningId={timer?.block.id ?? null}
+                  onSelect={(b) => setSelectedId(b.id)}
                   className="lane lane-parallel"
                 />
               )}
@@ -257,6 +310,17 @@ function SchedulePane(): React.JSX.Element {
           )}
         </>
       )}
+
+      <AnimatePresence>
+        {selectedBlock && (
+          <BlockSheet
+            key={selectedBlock.id}
+            block={selectedBlock}
+            date={date}
+            onClose={() => setSelectedId(null)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   )
 }

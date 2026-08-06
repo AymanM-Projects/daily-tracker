@@ -40,7 +40,9 @@ function fillLane(
       name: activity.name,
       start: formatHM(cursor),
       end: formatHM(end),
-      overflow
+      overflow,
+      status: 'planned',
+      actualMinutes: null
     })
     if (overflow) {
       unscheduled.push(...sorted.slice(i + 1).map((a) => a.name))
@@ -57,7 +59,9 @@ function fillLane(
         name: 'Break',
         start: formatHM(cursor),
         end: formatHM(cursor + settings.breakMinutes),
-        overflow: false
+        overflow: false,
+        status: 'planned',
+        actualMinutes: null
       })
       cursor += settings.breakMinutes
     }

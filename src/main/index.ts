@@ -1,9 +1,12 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, Notification } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import type { AppData } from '../shared/types'
+import type { TimerAlarm } from '../shared/types'
 import { loadData, scheduleSave, flushPendingSave } from './store'
+
+let alarmTimeout: NodeJS.Timeout | null = null
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -18,7 +21,9 @@ function createWindow(): void {
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: false,
+      // Chromium throttles background timers to ~1/min; the countdown must stay smooth
+      backgroundThrottling: false
     }
   })
 
@@ -55,6 +60,22 @@ app.whenReady().then(() => {
   })
   ipcMain.handle('window:set-always-on-top', (event, flag: boolean) => {
     BrowserWindow.fromWebContents(event.sender)?.setAlwaysOnTop(flag, 'floating')
+  })
+  // The renderer's own timers are unreliable once the window is backgrounded,
+  // so main owns the alarm. One pending alarm at a time; null cancels it.
+  ipcMain.handle('timer:set-alarm', (_event, alarm: TimerAlarm | null) => {
+    if (alarmTimeout) {
+      clearTimeout(alarmTimeout)
+      alarmTimeout = null
+    }
+    if (!alarm) return
+    const delay = Math.max(0, alarm.at - Date.now())
+    alarmTimeout = setTimeout(() => {
+      alarmTimeout = null
+      if (Notification.isSupported()) {
+        new Notification({ title: alarm.title, body: alarm.body }).show()
+      }
+    }, delay)
   })
 
   createWindow()
