@@ -1,7 +1,7 @@
 import { motion } from 'motion/react'
-import { CalendarIcon, CheckSquareIcon, ListIcon, BookIcon } from './icons'
+import { CalendarIcon, CheckSquareIcon, ListIcon, BookIcon, SettingsIcon } from './icons'
 
-export type TabId = 'schedule' | 'checklist' | 'activities' | 'journal'
+export type TabId = 'schedule' | 'checklist' | 'activities' | 'journal' | 'settings'
 
 interface TabDef {
   id: TabId
@@ -13,7 +13,8 @@ const TABS: TabDef[] = [
   { id: 'schedule', label: 'Schedule', icon: CalendarIcon },
   { id: 'checklist', label: 'Checklist', icon: CheckSquareIcon },
   { id: 'activities', label: 'Activities', icon: ListIcon },
-  { id: 'journal', label: 'Journal', icon: BookIcon }
+  { id: 'journal', label: 'Journal', icon: BookIcon },
+  { id: 'settings', label: 'Settings', icon: SettingsIcon }
 ]
 
 interface TabBarProps {

@@ -182,9 +182,9 @@ textarea {
 .tabbar {
   flex-shrink: 0;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 4px;
-  padding: 8px 10px 10px;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 2px;
+  padding: 8px 8px 10px;
   border-top: 1px solid var(--border);
   background: rgba(15, 23, 42, 0.5);
 }
@@ -195,13 +195,21 @@ textarea {
   flex-direction: column;
   align-items: center;
   gap: 3px;
-  padding: 7px 4px 6px;
+  padding: 7px 2px 6px;
   border-radius: var(--radius);
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
   transition: color 0.2s;
+  min-width: 0;
+}
+
+.tab > span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tab:hover {
@@ -937,6 +945,54 @@ button.block:hover {
 .tb-btn.done:hover {
   color: var(--accent-strong);
   background: var(--accent-dim);
+}
+
+/* --- settings --- */
+
+.setting-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.setting-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.setting-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.setting-field .field {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.setting-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hint-ok {
+  color: var(--accent-strong);
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
 
 /* --- block action sheet --- */

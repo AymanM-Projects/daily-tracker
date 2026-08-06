@@ -5,6 +5,8 @@ import icon from '../../resources/icon.png?asset'
 import type { AppData } from '../shared/types'
 import type { TimerAlarm } from '../shared/types'
 import { loadData, scheduleSave, flushPendingSave } from './store'
+import { getStatus, setApiKey } from './ai-config'
+import { testConnection } from './ai'
 
 let alarmTimeout: NodeJS.Timeout | null = null
 
@@ -61,6 +63,11 @@ app.whenReady().then(() => {
   ipcMain.handle('window:set-always-on-top', (event, flag: boolean) => {
     BrowserWindow.fromWebContents(event.sender)?.setAlwaysOnTop(flag, 'floating')
   })
+  // AI key handling stays in main: the renderer only ever learns whether a key
+  // is configured and its last 4 characters, never the key itself.
+  ipcMain.handle('ai:status', () => getStatus())
+  ipcMain.handle('ai:set-key', (_event, key: string | null) => setApiKey(key))
+  ipcMain.handle('ai:test', (_event, candidateKey?: string) => testConnection(candidateKey))
   // The renderer's own timers are unreliable once the window is backgrounded,
   // so main owns the alarm. One pending alarm at a time; null cancels it.
   ipcMain.handle('timer:set-alarm', (_event, alarm: TimerAlarm | null) => {

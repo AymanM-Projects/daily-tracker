@@ -103,6 +103,19 @@ export interface DayData {
   activitySetId: string | null // which set generated this day's schedule
 }
 
+/**
+ * What the renderer is allowed to know about the stored API key. The key itself
+ * never crosses the IPC boundary — only whether one exists and its last 4 chars.
+ */
+export interface AiStatus {
+  configured: boolean
+  source: 'keychain' | 'env' | 'none'
+  hint: string | null
+  encryptionAvailable: boolean
+}
+
+export type AiTestResult = { ok: true; data: { model: string } } | { ok: false; error: string }
+
 /** A single pending completion notification, owned by the main process. */
 export interface TimerAlarm {
   at: number // epoch ms

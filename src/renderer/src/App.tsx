@@ -7,6 +7,7 @@ import SchedulePane from './panes/SchedulePane'
 import ChecklistPane from './panes/ChecklistPane'
 import ActivitiesPane from './panes/ActivitiesPane'
 import JournalPane from './panes/JournalPane'
+import SettingsPane from './panes/SettingsPane'
 
 function renderPane(tab: TabId): React.JSX.Element {
   switch (tab) {
@@ -18,6 +19,8 @@ function renderPane(tab: TabId): React.JSX.Element {
       return <ActivitiesPane />
     case 'journal':
       return <JournalPane />
+    case 'settings':
+      return <SettingsPane />
   }
 }
 
