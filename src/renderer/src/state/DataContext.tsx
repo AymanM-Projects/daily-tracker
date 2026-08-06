@@ -64,6 +64,7 @@ function reducer(state: State, action: Action): State {
         durationMinutes: action.durationMinutes,
         priority: action.priority,
         mode: action.mode,
+        projectId: null, // wired to the UI in Phase 2
         createdAt: new Date().toISOString()
       }
       return {

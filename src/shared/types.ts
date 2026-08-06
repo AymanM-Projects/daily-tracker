@@ -12,7 +12,33 @@ export interface Activity {
   durationMinutes: number
   priority: Priority
   mode: ActivityMode
+  projectId: string | null // null = not tied to any project
   createdAt: string // ISO, sort tiebreaker
+}
+
+/** A long-horizon goal that activities can feed into (a competition, a build, an exam) */
+export interface Project {
+  id: string
+  name: string
+  deadline: DateKey | null
+  targetHoursPerWeek: number | null
+  archived: boolean
+  createdAt: string // ISO
+}
+
+/**
+ * A named group of activities that owns its own day window, so a weekday
+ * afternoon and a weekend morning don't share one set of times.
+ */
+export interface ActivitySet {
+  id: string
+  name: string
+  activityIds: string[]
+  dayStart: string // 'HH:mm'
+  dayEnd: string // 'HH:mm'
+  breaksEnabled: boolean
+  isDefault: boolean
+  createdAt: string // ISO
 }
 
 export interface ChecklistItem {
@@ -57,11 +83,15 @@ export interface DayData {
   journal: JournalEntry[]
   schedule: ScheduleBlock[] | null // null = never generated for this day
   unscheduled: string[] | null // activity names that didn't fit
+  activitySetId: string | null // which set generated this day's schedule
 }
 
 export interface AppData {
-  version: 1
+  version: 2
+  projects: Project[]
+  activitySets: ActivitySet[]
   activities: Activity[]
+  /** Fallback day window, used when no activity set is active. Kept for compatibility. */
   settings: Settings
   days: Record<DateKey, DayData>
 }

@@ -1,4 +1,4 @@
-import type { AppData, DateKey, DayData, Settings } from './types'
+import type { ActivitySet, AppData, DateKey, DayData, Settings } from './types'
 
 export function defaultSettings(): Settings {
   return {
@@ -10,12 +10,33 @@ export function defaultSettings(): Settings {
   }
 }
 
+/**
+ * The set every document starts with. Window values are passed in so a migration
+ * can carry the user's existing settings across instead of resetting them.
+ */
+export function defaultActivitySet(
+  activityIds: string[] = [],
+  window: Pick<Settings, 'dayStart' | 'dayEnd' | 'breaksEnabled'> = defaultSettings()
+): ActivitySet {
+  return {
+    id: crypto.randomUUID(),
+    name: 'Default',
+    activityIds,
+    dayStart: window.dayStart,
+    dayEnd: window.dayEnd,
+    breaksEnabled: window.breaksEnabled,
+    isDefault: true,
+    createdAt: new Date().toISOString()
+  }
+}
+
 export function emptyDay(): DayData {
   return {
     checklist: [],
     journal: [],
     schedule: null,
-    unscheduled: null
+    unscheduled: null,
+    activitySetId: null
   }
 }
 
@@ -25,7 +46,9 @@ export function getDay(data: AppData, date: DateKey): DayData {
 
 export function defaultAppData(): AppData {
   return {
-    version: 1,
+    version: 2,
+    projects: [],
+    activitySets: [defaultActivitySet()],
     activities: [],
     settings: defaultSettings(),
     days: {}
