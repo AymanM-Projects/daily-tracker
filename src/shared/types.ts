@@ -47,6 +47,29 @@ export interface ChecklistItem {
   done: boolean
   createdAt: string // ISO
   completedAt: string | null // ISO, set when checked
+  estimateMinutes: number | null // optional guess; null means "didn't say"
+  /** where the item came from. 'schedule' is reserved for the block↔checklist link. */
+  source: 'manual' | 'recurring' | 'schedule'
+  recurringTaskId?: string // only on source 'recurring' — the rule that created it
+  scheduleBlockId?: string // only on source 'schedule'
+}
+
+export type RecurrenceFreq = 'daily' | 'weekly' | 'monthly'
+
+/**
+ * A standing rule that drops a checklist item into a day when it comes due.
+ * Rules only ever fill in today — a missed occurrence is simply missed, so the
+ * journal never claims the user saw a task they never did.
+ */
+export interface RecurringTask {
+  id: string
+  text: string
+  estimateMinutes: number | null
+  freq: RecurrenceFreq
+  weekdays: number[] // 'weekly' only, 0 = Sunday
+  dayOfMonth: number // 'monthly' only, 1-31, clamped in short months
+  active: boolean
+  createdAt: string // ISO
 }
 
 export interface JournalEntry {
@@ -101,6 +124,12 @@ export interface DayData {
   schedule: ScheduleBlock[] | null // null = never generated for this day
   unscheduled: string[] | null // activity names that didn't fit
   activitySetId: string | null // which set generated this day's schedule
+  /**
+   * Recurring rule ids already applied to this day. Per-day rather than a global
+   * "last run" marker so that deleting a generated task doesn't resurrect it on
+   * the next launch — saying "not today" has to stick.
+   */
+  recurringApplied: string[]
 }
 
 /**
@@ -161,11 +190,12 @@ export interface WidgetSummary {
 }
 
 export interface AppData {
-  version: 3
+  version: 4
   activeTimer: ActiveTimer | null
   projects: Project[]
   activitySets: ActivitySet[]
   activities: Activity[]
+  recurringTasks: RecurringTask[]
   /** Fallback day window, used when no activity set is active. Kept for compatibility. */
   settings: Settings
   days: Record<DateKey, DayData>

@@ -34,7 +34,8 @@ function withSchedule(blocks: ScheduleBlock[] | null): AppData {
     journal: [],
     schedule: blocks,
     unscheduled: null,
-    activitySetId: null
+    activitySetId: null,
+    recurringApplied: []
   }
   return data
 }
@@ -145,8 +146,24 @@ describe('buildWidgetSummary', () => {
   it('counts the checklist', () => {
     const data = withSchedule(null)
     data.days[KEY].checklist = [
-      { id: 'c1', text: 'a', done: true, createdAt: '', completedAt: null },
-      { id: 'c2', text: 'b', done: false, createdAt: '', completedAt: null }
+      {
+        id: 'c1',
+        text: 'a',
+        done: true,
+        createdAt: '',
+        completedAt: null,
+        estimateMinutes: null,
+        source: 'manual'
+      },
+      {
+        id: 'c2',
+        text: 'b',
+        done: false,
+        createdAt: '',
+        completedAt: null,
+        estimateMinutes: null,
+        source: 'manual'
+      }
     ]
     expect(buildWidgetSummary(data, at('16:45')).checklist).toEqual({ done: 1, total: 2 })
   })

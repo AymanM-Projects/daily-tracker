@@ -43,6 +43,27 @@ export function formatDateLabel(key: DateKey): string {
   })
 }
 
+/** Day of the week for a date key, 0 = Sunday */
+export function weekdayOf(key: DateKey): number {
+  const [y, m, d] = key.split('-').map(Number)
+  return new Date(y, m - 1, d).getDay()
+}
+
+/** How many days the key's month has — day 0 of the next month is the last of this one */
+export function daysInMonth(key: DateKey): number {
+  const [y, m] = key.split('-').map(Number)
+  return new Date(y, m, 0).getDate()
+}
+
+/** '45m', '1h', '2h 15m' — compact enough for a dense pane */
+export function formatMinutes(minutes: number): string {
+  const safe = Math.max(0, Math.round(minutes))
+  if (safe < 60) return `${safe}m`
+  const h = Math.floor(safe / 60)
+  const m = safe % 60
+  return m === 0 ? `${h}h` : `${h}h ${m}m`
+}
+
 /** ISO timestamp -> local 'HH:mm' */
 export function formatTimestamp(iso: string): string {
   const d = new Date(iso)

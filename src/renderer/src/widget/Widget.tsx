@@ -1,15 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { MotionConfig, motion } from 'motion/react'
 import type { WidgetBlock, WidgetSummary } from '@shared/types'
+import { formatMinutes } from '@shared/time'
 import { CalendarIcon, CheckIcon, CoffeeIcon } from '../components/icons'
-
-/** '45m', '1h', '2h 15m' — compact enough for a 300px panel. */
-function away(minutes: number): string {
-  if (minutes < 60) return `${minutes}m`
-  const h = Math.floor(minutes / 60)
-  const m = minutes % 60
-  return m === 0 ? `${h}h` : `${h}h ${m}m`
-}
 
 const rise = {
   hidden: { opacity: 0, y: 6 },
@@ -29,7 +22,9 @@ function Row({ block, upcoming }: { block: WidgetBlock; upcoming?: boolean }): R
         {block.kind === 'break' && <CoffeeIcon size={12} />}
         <span className="widget-name">{block.name}</span>
         <span className="widget-away">
-          {upcoming ? `in ${away(block.minutesAway)}` : `${away(block.minutesAway)} left`}
+          {upcoming
+            ? `in ${formatMinutes(block.minutesAway)}`
+            : `${formatMinutes(block.minutesAway)} left`}
         </span>
       </div>
       {upcoming ? (

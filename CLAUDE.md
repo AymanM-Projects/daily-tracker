@@ -76,6 +76,18 @@ DataContext (useReducer)  --IPC 'data:save'-->  store.ts  -->  daily-tracker-dat
 
 Daily data lives under `AppData.days['YYYY-MM-DD']` using the **local** date from `todayKey()`. There is no date library — all time arithmetic is integer minutes-since-midnight via `parseHM`/`formatHM` in `src/shared/time.ts`. `getDay()` (in `src/shared/defaults.ts`) returns an empty day shape for missing keys so panes never null-check. A 30-second interval in `DataContext` dispatches `setActiveDate` when the date rolls over.
 
+### Recurring checklist tasks
+
+`AppData.recurringTasks` holds standing rules (daily / weekly-on-weekdays / monthly-on-day). `src/shared/recurrence.ts` is a pure function pair — `dueOn` and `pendingRules` — and is the only place recurrence logic belongs.
+
+Three rules that are easy to break:
+
+- **Materialisation happens in the reducer**, on `hydrate` and `setActiveDate`, not in an effect. `setActiveDate` is dispatched from exactly one place — the 30-second rollover interval — so it always means "the real calendar date changed". The Journal browses history with local `viewDate` state and never dispatches it, which is what keeps browsing the past from creating tasks there. If that ever changes, materialisation must be guarded on `date === todayKey()`.
+- **`DayData.recurringApplied` is per-day on purpose.** It records which rule ids a day has already had applied. A global "last run" marker would resurrect a generated task the moment the user deleted it and reopened the app — saying "not today" has to stick.
+- **Rules only ever fill in today.** There is no backfill and no carry-forward; a missed occurrence leaves no trace, so the journal never claims the user saw a task they never did.
+
+A monthly rule set past the end of a short month clamps to that month's last day — a "31st" rule fires on 28 February rather than skipping four months a year.
+
 ### Business rules that live in the reducer
 
 The auto-journal link is the important one: `toggleChecklistItem` inserts a `JournalEntry` with `kind: 'auto'` and `checklistItemId` set when an item is checked, and removes that linked entry when it's unchecked. Deleting a checklist item deliberately keeps its journal entry — completed work stays in history. Keep this rule in the reducer rather than in pane components so it holds for every caller.

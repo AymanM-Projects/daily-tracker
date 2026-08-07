@@ -120,7 +120,8 @@ describe('migrate v2 -> v3', () => {
     delete rewound.activeTimer
 
     const out = migrate(rewound)
-    expect(out.version).toBe(3)
+    // the chain always runs to the end, so a v2 document lands on CURRENT_VERSION
+    expect(out.version).toBe(CURRENT_VERSION)
     expect(out.activeTimer).toBeNull()
     expect(out.days['2026-08-06'].schedule?.[0].status).toBe('planned')
     expect(out.days['2026-08-06'].schedule?.[0].actualMinutes).toBeNull()
@@ -136,5 +137,75 @@ describe('migrate v2 -> v3', () => {
       days: { '2026-08-06': { checklist: [], journal: [], schedule: null, unscheduled: null } }
     })
     expect(out.days['2026-08-06'].schedule).toBeNull()
+  })
+})
+
+describe('migrate v3 -> v4', () => {
+  /** A v3 document with one done and one open checklist item. */
+  function v3Fixture(): Record<string, unknown> {
+    return {
+      version: 3,
+      activeTimer: null,
+      projects: [],
+      activitySets: [],
+      activities: [],
+      settings: {},
+      days: {
+        '2026-08-06': {
+          checklist: [
+            { id: 'c1', text: 'Ship it', done: true, createdAt: 'x', completedAt: 'y' },
+            { id: 'c2', text: 'Write tests', done: false, createdAt: 'x', completedAt: null }
+          ],
+          journal: [{ id: 'j1', kind: 'manual', text: 'note', timestamp: 'x' }],
+          schedule: null,
+          unscheduled: null,
+          activitySetId: null
+        }
+      }
+    }
+  }
+
+  it('adds recurring rules and stamps existing checklist items as manual', () => {
+    const out = migrate(v3Fixture())
+    expect(out.version).toBe(CURRENT_VERSION)
+    expect(out.recurringTasks).toEqual([])
+
+    const day = out.days['2026-08-06']
+    expect(day.recurringApplied).toEqual([])
+    // existing items must be explicitly 'manual', or reconciliation would treat
+    // every one of them as machine-generated and reap it
+    expect(day.checklist.map((i) => i.source)).toEqual(['manual', 'manual'])
+    expect(day.checklist.map((i) => i.estimateMinutes)).toEqual([null, null])
+  })
+
+  it('loses nothing it does not understand', () => {
+    const out = migrate(v3Fixture())
+    const day = out.days['2026-08-06']
+    expect(day.checklist[0].text).toBe('Ship it')
+    expect(day.checklist[0].done).toBe(true)
+    expect(day.checklist[0].completedAt).toBe('y')
+    expect(day.checklist[1].done).toBe(false)
+    expect(day.journal[0].text).toBe('note')
+  })
+
+  it('does not re-stamp values a newer document already has', () => {
+    const doc = v3Fixture()
+    const days = doc.days as Record<string, Record<string, unknown>>
+    const checklist = days['2026-08-06'].checklist as Record<string, unknown>[]
+    checklist[0].source = 'recurring'
+    checklist[0].estimateMinutes = 25
+
+    const day = migrate(doc).days['2026-08-06']
+    expect(day.checklist[0].source).toBe('recurring')
+    expect(day.checklist[0].estimateMinutes).toBe(25)
+  })
+
+  it('survives a day with no checklist array at all', () => {
+    const out = migrate({
+      version: 3,
+      days: { '2026-08-06': { journal: [], schedule: null, unscheduled: null } }
+    })
+    expect(out.days['2026-08-06'].checklist).toEqual([])
+    expect(out.days['2026-08-06'].recurringApplied).toEqual([])
   })
 })

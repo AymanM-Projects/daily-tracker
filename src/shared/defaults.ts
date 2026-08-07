@@ -36,7 +36,8 @@ export function emptyDay(): DayData {
     journal: [],
     schedule: null,
     unscheduled: null,
-    activitySetId: null
+    activitySetId: null,
+    recurringApplied: []
   }
 }
 
@@ -46,11 +47,12 @@ export function getDay(data: AppData, date: DateKey): DayData {
 
 export function defaultAppData(): AppData {
   return {
-    version: 3,
+    version: 4,
     activeTimer: null,
     projects: [],
     activitySets: [defaultActivitySet()],
     activities: [],
+    recurringTasks: [],
     settings: defaultSettings(),
     days: {}
   }

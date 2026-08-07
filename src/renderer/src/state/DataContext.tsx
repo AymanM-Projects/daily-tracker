@@ -18,11 +18,13 @@ import type {
   DayData,
   JournalEntry,
   Priority,
+  RecurringTask,
   ScheduleBlock,
   Settings
 } from '@shared/types'
 import { defaultAppData, getDay } from '@shared/defaults'
 import { elapsedMinutes } from '@shared/timer'
+import { pendingRules } from '@shared/recurrence'
 import { todayKey } from '@shared/time'
 
 export interface State {
@@ -43,9 +45,16 @@ export type Action =
     }
   | { type: 'updateActivity'; activity: Activity }
   | { type: 'deleteActivity'; id: string }
-  | { type: 'addChecklistItem'; date: DateKey; text: string }
+  | { type: 'addChecklistItem'; date: DateKey; text: string; estimateMinutes: number | null }
   | { type: 'toggleChecklistItem'; date: DateKey; id: string }
   | { type: 'deleteChecklistItem'; date: DateKey; id: string }
+  | {
+      type: 'addRecurringTask'
+      task: Omit<RecurringTask, 'id' | 'createdAt'>
+      date: DateKey
+    }
+  | { type: 'updateRecurringTask'; task: RecurringTask }
+  | { type: 'deleteRecurringTask'; id: string }
   | { type: 'addJournalEntry'; date: DateKey; text: string }
   | { type: 'setSchedule'; date: DateKey; blocks: ScheduleBlock[]; unscheduled: string[] }
   | { type: 'updateSettings'; patch: Partial<Settings> }
@@ -114,12 +123,56 @@ function applyBlockStatus(
   })
 }
 
+/**
+ * Drop in the checklist items for every recurring rule due on `date` that this
+ * day hasn't already had applied.
+ *
+ * The applied-rule ids are recorded on the day rather than as a global "last
+ * run" marker, so deleting a generated task makes it stay gone. Saying "not
+ * today" has to stick, or the app argues with the user on every launch.
+ *
+ * Only ever called for the real current date — never when browsing history.
+ */
+function applyRecurring(data: AppData, date: DateKey): AppData {
+  const due = pendingRules(data.recurringTasks, date, getDay(data, date).recurringApplied)
+  if (due.length === 0) return data
+
+  const now = new Date().toISOString()
+  return withDay(data, date, (day) => ({
+    ...day,
+    checklist: [
+      ...day.checklist,
+      ...due.map((rule) => ({
+        id: crypto.randomUUID(),
+        text: rule.text,
+        done: false,
+        createdAt: now,
+        completedAt: null,
+        estimateMinutes: rule.estimateMinutes,
+        source: 'recurring' as const,
+        recurringTaskId: rule.id
+      }))
+    ],
+    recurringApplied: [...day.recurringApplied, ...due.map((r) => r.id)]
+  }))
+}
+
 function reducer(state: State, action: Action): State {
   switch (action.type) {
     case 'hydrate':
-      return { ...state, data: action.data, hydrated: true }
+      return {
+        ...state,
+        data: applyRecurring(action.data, state.activeDate),
+        hydrated: true
+      }
     case 'setActiveDate':
-      return { ...state, activeDate: action.date }
+      // dispatched only by the rollover interval, so this is always the real
+      // new day — browsing history in the Journal uses local state instead
+      return {
+        ...state,
+        activeDate: action.date,
+        data: applyRecurring(state.data, action.date)
+      }
     case 'addActivity': {
       const activity: Activity = {
         id: crypto.randomUUID(),
@@ -159,7 +212,9 @@ function reducer(state: State, action: Action): State {
         text: action.text,
         done: false,
         createdAt: new Date().toISOString(),
-        completedAt: null
+        completedAt: null,
+        estimateMinutes: action.estimateMinutes,
+        source: 'manual'
       }
       return {
         ...state,
@@ -209,6 +264,35 @@ function reducer(state: State, action: Action): State {
           ...day,
           checklist: day.checklist.filter((i) => i.id !== action.id)
         }))
+      }
+    case 'addRecurringTask': {
+      const task: RecurringTask = {
+        ...action.task,
+        id: crypto.randomUUID(),
+        createdAt: new Date().toISOString()
+      }
+      const withTask = { ...state.data, recurringTasks: [...state.data.recurringTasks, task] }
+      // run it straight away so a rule due today shows up without waiting for midnight
+      return { ...state, data: applyRecurring(withTask, action.date) }
+    }
+    case 'updateRecurringTask':
+      return {
+        ...state,
+        data: {
+          ...state.data,
+          recurringTasks: state.data.recurringTasks.map((t) =>
+            t.id === action.task.id ? action.task : t
+          )
+        }
+      }
+    case 'deleteRecurringTask':
+      // tasks it already created stay put — they are part of the day's record now
+      return {
+        ...state,
+        data: {
+          ...state.data,
+          recurringTasks: state.data.recurringTasks.filter((t) => t.id !== action.id)
+        }
       }
     case 'addJournalEntry':
       return {
@@ -313,6 +397,7 @@ interface DataContextValue {
   dispatch: Dispatch<Action>
   today: DayData
   activities: Activity[]
+  recurringTasks: RecurringTask[]
   settings: Settings
 }
 
@@ -361,6 +446,7 @@ export function DataProvider({ children }: { children: ReactNode }): React.JSX.E
       dispatch,
       today: getDay(state.data, state.activeDate),
       activities: state.data.activities,
+      recurringTasks: state.data.recurringTasks,
       settings: state.data.settings
     }),
     [state]

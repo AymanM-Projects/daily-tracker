@@ -95,8 +95,7 @@ function ActivitiesPane(): React.JSX.Element {
             aria-label="Activity name"
           />
           <input
-            className="field"
-            style={{ width: 74, flexShrink: 0 }}
+            className="field field-est"
             type="number"
             min={5}
             step={5}

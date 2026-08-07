@@ -151,6 +151,135 @@ textarea {
   color: var(--accent-strong);
 }
 
+/* utilities — previously only existed scoped to .sched-row / .card-meta */
+.grow {
+  flex: 1;
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+/* ---------- Checklist time budget ---------- */
+
+.budget {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: -2px 0 8px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+/* over-commitment is information, never a block — amber, not red */
+.budget.over {
+  color: var(--warn);
+}
+
+.budget-sep {
+  opacity: 0.5;
+}
+
+/*
+ * The optional minutes box beside a task name. Sized with flex-basis rather
+ * than width: `.field` sets `width: 100%` further down the sheet and would win
+ * on source order, but it sets no flex-basis, so this takes precedence in a row.
+ */
+.add-row .field {
+  flex: 1;
+  min-width: 0;
+}
+
+.add-row .field-est {
+  flex: 0 0 62px;
+}
+
+.field-est {
+  text-align: center;
+  font-family: var(--font-mono);
+}
+
+.est {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.chip-repeat {
+  margin-left: 6px;
+  color: var(--parallel);
+  background: var(--parallel-dim);
+}
+
+/* durations are lowercase units — the default chip uppercasing turns 20m into 20M */
+.chip-est {
+  text-transform: none;
+  font-family: var(--font-mono);
+}
+
+/* ---------- Repeating task rules ---------- */
+
+.recur-form {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.daypick {
+  display: flex;
+  gap: 4px;
+}
+
+.daypick-btn {
+  flex: 1;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  transition:
+    background 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.daypick-btn:hover {
+  border-color: var(--border-strong);
+}
+
+.daypick-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.daypick-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* the rule list can run long, so it scrolls inside the sheet */
+.sheet-tall {
+  max-height: 88vh;
+}
+
+.recur-list {
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.recur-empty {
+  padding: 6px 2px 2px;
+}
+
+.card-name.muted {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
 /* ---------- Tab bar ---------- */
 
 .tabbar {

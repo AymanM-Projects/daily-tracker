@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
+import { formatMinutes, minutesNow, parseHM } from '@shared/time'
 import { useData } from '../state/DataContext'
 import EmptyState from '../components/EmptyState'
-import { CheckIcon, CheckSquareIcon, PlusIcon, TrashIcon } from '../components/icons'
+import RecurringSheet from '../components/RecurringSheet'
+import { CheckIcon, CheckSquareIcon, PlusIcon, RepeatIcon, TrashIcon } from '../components/icons'
 
 const listVariants = {
   hidden: {},
@@ -15,17 +17,36 @@ const itemVariants = {
 }
 
 function ChecklistPane(): React.JSX.Element {
-  const { state, today, dispatch } = useData()
+  const { state, today, settings, dispatch } = useData()
   const [text, setText] = useState('')
+  const [estimate, setEstimate] = useState('')
+  const [showRecurring, setShowRecurring] = useState(false)
   const date = state.activeDate
   const doneCount = today.checklist.filter((i) => i.done).length
+
+  // what's left to do, weighed against what's left of the day
+  const plannedMinutes = today.checklist
+    .filter((i) => !i.done)
+    .reduce((sum, i) => sum + (i.estimateMinutes ?? 0), 0)
+  const freeMinutes = Math.max(
+    0,
+    parseHM(settings.dayEnd) - Math.max(minutesNow(), parseHM(settings.dayStart))
+  )
+  const overcommitted = plannedMinutes > freeMinutes
 
   const add = (e: React.FormEvent): void => {
     e.preventDefault()
     const trimmed = text.trim()
     if (!trimmed) return
-    dispatch({ type: 'addChecklistItem', date, text: trimmed })
+    const mins = Number.parseInt(estimate, 10)
+    dispatch({
+      type: 'addChecklistItem',
+      date,
+      text: trimmed,
+      estimateMinutes: Number.isFinite(mins) && mins > 0 ? mins : null
+    })
     setText('')
+    setEstimate('')
   }
 
   return (
@@ -37,7 +58,27 @@ function ChecklistPane(): React.JSX.Element {
             {doneCount}/{today.checklist.length}
           </span>
         )}
+        <span className="grow" />
+        <button
+          className="btn-ghost"
+          onClick={() => setShowRecurring(true)}
+          aria-label="Manage repeating tasks"
+        >
+          <RepeatIcon size={13} />
+          Repeating
+        </button>
       </h2>
+
+      {plannedMinutes > 0 && (
+        <p className={overcommitted ? 'budget over' : 'budget'}>
+          {formatMinutes(plannedMinutes)} of work left
+          <span className="budget-sep">·</span>
+          {freeMinutes > 0
+            ? `${formatMinutes(freeMinutes)} before your day ends`
+            : 'your day window is over'}
+        </p>
+      )}
+
       <form className="add-row" onSubmit={add}>
         <input
           className="field"
@@ -45,6 +86,17 @@ function ChecklistPane(): React.JSX.Element {
           onChange={(e) => setText(e.target.value)}
           placeholder="Add a task for today…"
           aria-label="New task"
+        />
+        <input
+          className="field field-est"
+          type="number"
+          min={0}
+          step={5}
+          value={estimate}
+          onChange={(e) => setEstimate(e.target.value)}
+          placeholder="min"
+          aria-label="Estimated minutes"
+          title="Estimate in minutes (optional)"
         />
         <motion.button
           type="submit"
@@ -84,7 +136,18 @@ function ChecklistPane(): React.JSX.Element {
                 >
                   {item.done && <CheckIcon size={13} />}
                 </button>
-                <span className={item.done ? 'check-text done' : 'check-text'}>{item.text}</span>
+                <span className={item.done ? 'check-text done' : 'check-text'}>
+                  {item.text}
+                  {item.source === 'recurring' && (
+                    <span className="chip chip-repeat" title="Added by a repeating task">
+                      <RepeatIcon size={8} />
+                      repeats
+                    </span>
+                  )}
+                </span>
+                {item.estimateMinutes !== null && (
+                  <span className="est mono">{formatMinutes(item.estimateMinutes)}</span>
+                )}
                 <button
                   className="icon-btn danger"
                   onClick={() => dispatch({ type: 'deleteChecklistItem', date, id: item.id })}
@@ -97,6 +160,10 @@ function ChecklistPane(): React.JSX.Element {
           </AnimatePresence>
         </motion.ul>
       )}
+
+      <AnimatePresence>
+        {showRecurring && <RecurringSheet date={date} onClose={() => setShowRecurring(false)} />}
+      </AnimatePresence>
     </div>
   )
 }

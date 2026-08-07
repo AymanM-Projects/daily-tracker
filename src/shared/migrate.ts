@@ -5,7 +5,7 @@ import { defaultActivitySet, defaultSettings } from './defaults'
  * Bump this whenever the on-disk shape changes, and add a matching step to the
  * chain in `migrate()`. `src/main/store.ts` backs the file up before applying.
  */
-export const CURRENT_VERSION = 3
+export const CURRENT_VERSION = 4
 
 type AnyData = Record<string, unknown>
 
@@ -87,6 +87,39 @@ function v2ToV3(data: AnyData): AnyData {
 }
 
 /**
+ * v4 adds recurring checklist rules and per-task time estimates.
+ *
+ * `source` is stamped explicitly rather than left undefined: reconciliation
+ * distinguishes items the user typed from ones a rule produced, and an absent
+ * field would make every existing task look machine-generated. `scheduleBlockId`
+ * is deliberately part of this shape though nothing writes it yet — the
+ * block↔checklist link lands next, and one migration is cheaper than two.
+ */
+function v3ToV4(data: AnyData): AnyData {
+  const days = asRecord(data.days)
+
+  return {
+    ...data,
+    version: 4,
+    recurringTasks: asArray(data.recurringTasks),
+    days: Object.fromEntries(
+      Object.entries(days).map(([key, day]) => [
+        key,
+        {
+          ...day,
+          recurringApplied: asArray(day.recurringApplied).map(String),
+          checklist: asArray(day.checklist).map((item) => ({
+            ...item,
+            estimateMinutes: item.estimateMinutes ?? null,
+            source: item.source ?? 'manual'
+          }))
+        }
+      ])
+    )
+  }
+}
+
+/**
  * Upgrades a parsed document to CURRENT_VERSION. Steps run in sequence, so a
  * document several versions behind walks through each one in turn.
  */
@@ -94,6 +127,6 @@ export function migrate(raw: AnyData): AppData {
   let data = raw
   if (((data.version as number) ?? 1) === 1) data = v1ToV2(data)
   if ((data.version as number) === 2) data = v2ToV3(data)
-  // future: if (data.version === 3) data = v3ToV4(data)
+  if ((data.version as number) === 3) data = v3ToV4(data)
   return data as unknown as AppData
 }
