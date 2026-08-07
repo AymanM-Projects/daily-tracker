@@ -21,6 +21,13 @@ export interface GenerateOptions {
    * a vibecoding run keeps running, which is the point of the parallel lane.
    */
   anchors?: Anchor[]
+  /**
+   * Spans the generator must route around but must NOT emit — blocks that
+   * already exist and are being kept, such as a hand-edited or settled block fed
+   * back in by Regenerate. Emitting these would duplicate every pinned block as
+   * a second, anchor-shaped copy of itself.
+   */
+  reserved?: Anchor[]
 }
 
 /**
@@ -173,11 +180,15 @@ export function generateSchedule(
 
   // only anchors inside the day window matter; Fajr at 5am is real but has no
   // bearing on an afternoon that starts at three
-  const anchors = (options.anchors ?? [])
-    .filter((a) => a.end > dayStart && a.start < dayEnd)
-    .sort((x, y) => x.start - y.start)
+  const inWindow = (a: Anchor): boolean => a.end > dayStart && a.start < dayEnd
+  const emitted = (options.anchors ?? []).filter(inWindow).sort((x, y) => x.start - y.start)
+  // reserved spans block the lane exactly like an anchor but are never emitted:
+  // they are blocks that already exist elsewhere in the day
+  const anchors = [...emitted, ...(options.reserved ?? []).filter(inWindow)].sort(
+    (x, y) => x.start - y.start
+  )
 
-  const anchorBlocks: ScheduleBlock[] = anchors.map((a) => ({
+  const anchorBlocks: ScheduleBlock[] = emitted.map((a) => ({
     id: crypto.randomUUID(),
     kind: 'anchor' as const,
     lane: 'focus' as const,

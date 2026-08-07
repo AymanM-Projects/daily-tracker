@@ -269,6 +269,34 @@ const chain = (n: number, minutes = 60): Activity[] =>
     })
   )
 
+describe('reserved spans (what Regenerate feeds back in)', () => {
+  it('routes around a reserved span without emitting it', () => {
+    // the pinned block already exists in the day; emitting it here would leave
+    // the user with the block they moved AND an anchor-shaped copy of it
+    const r = generateSchedule([activity({ name: 'Essay' })], settings(), {
+      reserved: [{ name: 'Reading', start: at(9), end: at(10) }]
+    })
+    expect(lines(r)).toEqual(['focus activity 10:00-11:00 Essay'])
+  })
+
+  it('still emits real anchors alongside reserved spans', () => {
+    const r = generateSchedule([activity({ name: 'Essay' })], settings(), {
+      anchors: [{ name: 'Dhuhr', start: at(13), end: at(13, 20) }],
+      reserved: [{ name: 'Reading', start: at(9), end: at(10) }]
+    })
+    expect(lines(r)).toEqual(['focus anchor 13:00-13:20 Dhuhr', 'focus activity 10:00-11:00 Essay'])
+  })
+
+  it('blocks the focus lane only, like any anchor', () => {
+    const r = generateSchedule(
+      [activity({ name: 'Print', mode: 'background', durationMinutes: 120 })],
+      settings(),
+      { reserved: [{ name: 'Reading', start: at(9), end: at(10) }] }
+    )
+    expect(lines(r)).toEqual(['parallel activity 09:00-11:00 Print'])
+  })
+})
+
 describe('protected free buffers', () => {
   it('reproduces the pre-change output exactly when disabled', () => {
     const input = chain(4)

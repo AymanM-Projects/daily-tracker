@@ -220,7 +220,15 @@ function SchedulePane(): React.JSX.Element {
         return { name: b.name, start: span.start, end: span.end }
       })
 
-    const result = generateSchedule(activities, settings, { anchors: [...anchors, ...pinned] })
+    // An activity that already has a kept block must not be scheduled a second
+    // time — otherwise moving "Reading" by hand and regenerating leaves you with
+    // the block you moved AND a fresh one back where it started.
+    const alreadyPlaced = new Set(keep.map((b) => b.activityId).filter(Boolean))
+    const result = generateSchedule(
+      activities.filter((a) => !alreadyPlaced.has(a.id)),
+      settings,
+      { anchors, reserved: pinned }
+    )
     dispatch({
       type: 'setSchedule',
       date,

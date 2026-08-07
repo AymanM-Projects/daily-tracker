@@ -87,7 +87,15 @@ DataContext (useReducer)  --IPC 'data:save'-->  store.ts  -->  daily-tracker-dat
 
 - `src/renderer/src/state/DataContext.tsx` holds the entire `AppData` in one reducer. Every committed change triggers a `saveData` effect that ships the **whole document** to main.
 - `src/main/store.ts` debounces those saves 300 ms, writes atomically (tmp file + rename), and flushes synchronously on `before-quit`. A parse failure renames the bad file to `*.corrupt-<epoch>.json` rather than discarding it.
-- The preload bridge (`src/preload/index.ts`, typed in `index.d.ts`) exposes exactly three calls: `loadData`, `saveData`, `setAlwaysOnTop`. Adding an IPC channel means touching main, preload, and the `Api` interface together.
+- The preload bridge (`src/preload/index.ts`, typed in `index.d.ts`) exposes eleven calls: `loadData`, `saveData`, `setAlwaysOnTop`, `setTimerAlarm`, `aiStatus`, `aiSetKey`, `aiTest`, `onWidgetUpdate`, `widgetReady`, `widgetResize`, `widgetOpenApp`. Adding an IPC channel means touching main, preload, and the `Api` interface together.
+
+### The AI key
+
+`src/main/ai-config.ts` stores a Gemini API key in the macOS Keychain (via Electron's `safeStorage`), with the `GEMINI_API_KEY` environment variable taking priority when set. `SettingsPane` drives it.
+
+**The key never crosses the IPC boundary.** The renderer only ever sees `AiStatus` — whether one is configured, where it came from, and the last four characters. `aiSetKey` sends a key _in_; nothing sends one back out. Keep that direction, or the key ends up in renderer memory and, worse, in the saved document.
+
+Nothing consumes the key yet: this is storage only, and the app is fully usable without one.
 
 ### Schema versions and migration
 
@@ -153,6 +161,34 @@ Blocks that run past `dayEnd` are flagged `overflow: true` rather than truncated
 
 Regeneration is **manual only** (the Generate/Regenerate button). Editing activities or settings never silently rewrites a schedule mid-day.
 
+### Editing a day after it exists
+
+`src/shared/reschedule.ts` is the only place a day's geometry is mutated: `shiftAfter`, `editBlock`, `insertBlock`, `removeBlock`, `extendBlock`, `truncate`, `spill`, `bankSpilled`. Pure and clock-free, so the reducer stays thin and all of it is testable without a running app.
+
+- **Anchors are never passed in.** They are already in the block array as `kind: 'anchor'` and `isImmovable` finds them — barriers are derived, so a caller cannot forget them.
+- **`shiftAfter` is not an inverse.** `+20` then `-20` does not restore a free block the first call consumed. Asserted in a test, because it is exactly what the next reader assumes.
+- **Consumables give up minutes off their front, never their end**, so a shift absorbed by free time costs the rest of the day nothing. One left under 5 minutes is dropped.
+- **A skipped block never moves but is never a barrier** — nothing happened in it.
+- **`editBlock` rejects rather than cascades.** A collision is refused with the name of what is in the way, and the sheet offers an explicit "shift the rest". Silent auto-shifting on a timeline you cannot drag reads as the app arguing with you.
+- Geometry is computed in the **component** and only the result is dispatched (`setDaySchedule`), matching the seam `SchedulePane.generate()` already used. That keeps actions plain serialisable data instead of threading error callbacks through the reducer.
+
+**Regenerate keeps hand edits.** Blocks that are `manual` or already settled are retained and fed back as `GenerateOptions.reserved` — spans the generator routes around but does _not_ emit. `anchors` are emitted, `reserved` are not; passing a pinned block as an anchor duplicates it as an anchor-shaped copy of itself. Activities that already own a kept block are filtered out of the regeneration, or moving a block by hand leaves you with it _and_ a fresh copy back where it started.
+
+### Prompts and pause
+
+Both prompt queues are **derived, never stored** (`useEndedBlocks`). Answering changes a status or stamps `promptedAt`, which removes the block from the derivation. That is why "the app was closed for five hours" needs no special code.
+
+- **A dismissal must never be readable as an answer.** Deferring the end-of-block prompt is held in memory and writes nothing, so relaunching re-asks. The early-finish prompt is the mirror image: it _does_ stamp `promptedAt`, because it is an offer and declining an offer is a real answer.
+- `status: 'partial'` exists so `syncBlockJournal` can write `Worked on:` instead of `Completed:` — without it, "keep for later" would have to record `done` and the journal would claim finished work that isn't.
+- `pauseDay` freezes the day **and** the running timer in one reducer case; two dispatches would mean two whole-document writes and a timer recording the pause as work.
+- A pause is a **within-day** device. Crossing midnight or running over ~8h clears it with **no shift**, enforced on `hydrate` and `setActiveDate` as well as on resume.
+
+### Theming
+
+`Settings.theme` is `'system' | 'light' | 'dark'`, stamped onto `<html>` as `data-theme` by `useTheme`. `[data-theme='light']` carries the light palette and `[data-theme='system']` picks it up through `prefers-color-scheme`, so an explicit choice beats the media query rather than racing it. Both documents stamp their own root — the popover has no `DataContext`, so the choice rides along on `WidgetSummary`.
+
+**The light lane colours are re-picked, not inverted.** Cyan and fuchsia tuned for a dark ground fall to roughly 1.8:1 on white. The light values are the same hues taken much darker, preserving the 104° gap. If they are ever re-picked, check the hue gap — contrast ratio alone will not tell you whether two lanes are distinguishable.
+
 ### Protected free time
 
 `kind: 'free'` blocks are rest the generator commits to. `fillLane` tracks focus minutes since the last real rest and, once `settings.freeBufferEveryMinutes` is reached, emits a free block **instead of** the break at that boundary — two rests back to back is one rest.
@@ -169,7 +205,7 @@ Regeneration is **manual only** (the Generate/Regenerate button). Editing activi
 - **Animations use Motion (`motion/react`)** — not CSS transitions — for anything stateful: `AnimatePresence mode="wait"` for tab switches, `layout` + `AnimatePresence` for list enter/exit, `staggerChildren` variants for list and timeline reveals, `layoutId` for the sliding tab indicator, spring `whileHover`/`whileTap` on controls. `MotionConfig reducedMotion="user"` in `App.tsx` plus a `prefers-reduced-motion` block in the CSS handle accessibility.
 - **Styling is hand-written CSS** driven by custom properties — dark palette, cyan accent for focus, fuchsia for parallel, amber for overflow, rose for destructive. No CSS framework, no CSS-in-JS. The palette is _meant_ to live in `src/renderer/src/assets/tokens.css`; `main.css` (app window) and `src/renderer/src/widget/widget.css` (popover) both `@import` it, because they are separate documents with separate bundles. Add or change a colour there, not in either stylesheet.
 
-**That rule is not currently held.** About 19 colours are still hardcoded outside `tokens.css` — the whole violet anchor family (`#a78bfa`, `#c4b5fd` and five `rgba` variants), both modal scrims, and the block glows. Two of those glows (`.block.current`, `.block.running`) use `rgba(52, 211, 153, …)`, which is the **emerald accent from before the cyan/fuchsia change** — the ring beside them correctly uses `var(--accent)`, so they have been quietly mismatched since. Promoting these into tokens is a prerequisite for any second theme (there is no light mode, no `prefers-color-scheme` rule, and no `nativeTheme` usage anywhere).
+That rule now genuinely holds: no colour literal appears in either stylesheet. If you add one, add a token instead — a second palette exists, and a literal silently ignores it.
 
 - **The two lane colours are chosen for hue separation, not luminance.** Cyan and fuchsia sit 104° apart; the previous emerald/blue pair was 55° apart and read as one colour in a 3px lane bar. If you ever re-pick them, check the hue gap — contrast ratio alone will not tell you whether two lanes are distinguishable.
 - **Fonts are bundled, never fetched.** IBM Plex Sans/Mono come from `@fontsource/*`, imported in both renderer entries. The CSP is `default-src 'self'` and the app must work offline, so a Google Fonts `@import` would silently fall back to a system font. Only static weights are bundled (400/500/600/700) — do not write `font-weight: 450`; that only worked while the stack resolved to variable SF Pro.
