@@ -314,6 +314,63 @@ export function editBlock(
   return ok(finalise([...pushed, moved], block.lane, span, window.dayEnd, options.makeId))
 }
 
+/**
+ * Drag a block to a new start, keeping its length.
+ *
+ * Separate from `editBlock` because their ripples mean different things.
+ * `editBlock` shifts from the block's OLD end by `newEnd - oldEnd`, which is
+ * right for growing a block but wrong for moving one: dragging a block earlier
+ * makes that delta negative, so the whole tail of the day would be pulled
+ * earlier as a side effect of moving one thing up.
+ *
+ * Here the ripple pushes only what is actually in the way, and only far enough
+ * to clear it — measured from the blocker's own start, so blocks keep their
+ * order and the day moves as little as the collision demands.
+ *
+ * The span the block came from is simply vacated. `finalise` carves and
+ * coalesces free time around the new position; nothing is minted over the old
+ * one, because a gap the user just emptied by hand is not protected rest.
+ */
+export function moveBlock(
+  blocks: ScheduleBlock[],
+  id: string,
+  newStart: number,
+  window: DayWindow,
+  options: ShiftOptions & { ripple?: boolean } = {}
+): Result<ScheduleBlock[]> {
+  const block = blocks.find((b) => b.id === id)
+  if (!block) return fail({ code: 'not-found' })
+  if (!isEditable(block) || isImmovable(block)) {
+    return fail({ code: 'immovable', blockName: block.name })
+  }
+  if (newStart < window.dayStart) return fail({ code: 'before-day-start' })
+
+  const current = blockSpan(block)
+  const newEnd = newStart + current.minutes
+  const moved: ScheduleBlock = {
+    ...block,
+    start: formatHM(newStart),
+    end: formatHM(newEnd),
+    manual: true
+  }
+
+  const span = { start: newStart, end: newEnd }
+  const others = blocks.filter((b) => b.id !== id)
+  const blocker = collidesWith(others, block.lane, span, id)
+  if (!blocker) {
+    return ok(finalise([...others, moved], block.lane, span, window.dayEnd, options.makeId))
+  }
+  if (!options.ripple) return fail(collisionError(blocker))
+
+  // push from the blocker's own start, by exactly the overlap, so a 5-minute
+  // nudge costs the day 5 minutes rather than the whole block's length
+  const blockerStart = blockSpan(blocker).start
+  const pushed = shiftAfter(others, blockerStart, newEnd - blockerStart, options)
+  const still = collidesWith(pushed, block.lane, span, id)
+  if (still) return fail(collisionError(still))
+  return ok(finalise([...pushed, moved], block.lane, span, window.dayEnd, options.makeId))
+}
+
 export interface NewBlock {
   name: string
   lane: ScheduleLane

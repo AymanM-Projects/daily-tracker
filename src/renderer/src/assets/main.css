@@ -852,6 +852,27 @@ textarea.field {
   margin-bottom: 3px;
 }
 
+/* revealed on hover so a day of entries reads as prose, not as a toolbar list */
+.journal-actions {
+  display: flex;
+  gap: 2px;
+  align-self: flex-start;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.journal-entry:hover .journal-actions,
+.journal-actions:focus-within {
+  opacity: 1;
+}
+
+.journal-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 6px;
+}
+
 .composer {
   display: flex;
   flex-direction: column;
@@ -1171,6 +1192,93 @@ textarea.field {
 }
 
 button.block {
+  cursor: pointer;
+}
+
+/*
+ * Direct manipulation.
+ *
+ * `touch-action: none` is what stops a vertical drag being stolen by
+ * `.pane-wrap`, which scrolls on the same axis. Motion sets this on the element
+ * it is dragging, but the handles need it declared too.
+ */
+button.block[draggable],
+.resize-handle {
+  touch-action: none;
+}
+
+.block.is-dragging {
+  cursor: grabbing;
+  box-shadow: 0 8px 24px var(--shadow-drag);
+  border-color: var(--accent);
+}
+
+/* the committed geometry is the real feedback, so the time has to be legible mid-drag */
+.drag-time {
+  position: absolute;
+  top: 3px;
+  right: 6px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--accent-strong);
+  background: var(--surface);
+  border-radius: 3px;
+  padding: 1px 4px;
+  white-space: nowrap;
+}
+
+/*
+ * Full-width strips rather than corner grips: a lane is 85–270px wide, and the
+ * edge is the only place with enough hit area to be found by accident-free aim.
+ * Inset, because `.block` clips its children.
+ */
+.resize-handle {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 7px;
+  cursor: ns-resize;
+  z-index: 2;
+}
+
+.resize-handle.top {
+  top: 0;
+}
+
+.resize-handle.bottom {
+  bottom: 0;
+}
+
+.resize-handle::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  top: 2px;
+  width: 22px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--border-strong);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.block:hover .resize-handle::after {
+  opacity: 1;
+}
+
+/* a refused drag has no sheet to report into */
+.drag-error {
+  width: 100%;
+  margin-bottom: 6px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--warn-dim);
+  border: 1px solid var(--warn);
+  color: var(--warn);
+  font-size: 10.5px;
+  text-align: left;
   cursor: pointer;
 }
 

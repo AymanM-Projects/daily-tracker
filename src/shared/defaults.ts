@@ -29,7 +29,9 @@ export function defaultSettings(): Settings {
     freeBufferEnabled: true,
     freeBufferMinutes: 30,
     freeBufferEveryMinutes: 120,
-    theme: 'system'
+    theme: 'system',
+    // the schedule is only worth generating if something acts on it
+    autopilot: true
   }
 }
 
@@ -71,7 +73,7 @@ export function getDay(data: AppData, date: DateKey): DayData {
 
 export function defaultAppData(): AppData {
   return {
-    version: 9,
+    version: 10,
     activeTimer: null,
     dayPause: null,
     projects: [],

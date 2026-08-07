@@ -87,7 +87,7 @@ DataContext (useReducer)  --IPC 'data:save'-->  store.ts  -->  daily-tracker-dat
 
 - `src/renderer/src/state/DataContext.tsx` holds the entire `AppData` in one reducer. Every committed change triggers a `saveData` effect that ships the **whole document** to main.
 - `src/main/store.ts` debounces those saves 300 ms, writes atomically (tmp file + rename), and flushes synchronously on `before-quit`. A parse failure renames the bad file to `*.corrupt-<epoch>.json` rather than discarding it.
-- The preload bridge (`src/preload/index.ts`, typed in `index.d.ts`) exposes eleven calls: `loadData`, `saveData`, `setAlwaysOnTop`, `setTimerAlarm`, `aiStatus`, `aiSetKey`, `aiTest`, `onWidgetUpdate`, `widgetReady`, `widgetResize`, `widgetOpenApp`. Adding an IPC channel means touching main, preload, and the `Api` interface together.
+- The preload bridge (`src/preload/index.ts`, typed in `index.d.ts`) exposes ten calls: `loadData`, `saveData`, `setAlwaysOnTop`, `aiStatus`, `aiSetKey`, `aiTest`, `onWidgetUpdate`, `widgetReady`, `widgetResize`, `widgetOpenApp`. Adding or removing an IPC channel means touching main, preload, and the `Api` interface together — `setTimerAlarm` was removed that way when main took over announcing the day.
 
 ### The AI key
 
@@ -99,7 +99,7 @@ Nothing consumes the key yet: this is storage only, and the app is fully usable 
 
 ### Schema versions and migration
 
-`AppData.version` is currently **9**. `src/shared/migrate.ts` is a chain of one-way `vNToVN+1` pure functions, applied in sequence by `migrate()`, so a document several versions behind walks through each step in turn. Never edit an old migration to add a new field — write the next one.
+`AppData.version` is currently **10**. `src/shared/migrate.ts` is a chain of one-way `vNToVN+1` pure functions, applied in sequence by `migrate()`, so a document several versions behind walks through each step in turn. Never edit an old migration to add a new field — write the next one.
 
 Changing the schema means bumping the version in **three** places that must agree: `CURRENT_VERSION` in `migrate.ts`, the literal on `AppData` in `types.ts`, and the default in `defaults.ts`. Miss one and the app either re-migrates every launch or quarantines its own file.
 
@@ -203,6 +203,46 @@ Regeneration is **manual only** (the Generate/Regenerate button). Editing activi
 - Geometry is computed in the **component** and only the result is dispatched (`setDaySchedule`), matching the seam `SchedulePane.generate()` already used. That keeps actions plain serialisable data instead of threading error callbacks through the reducer.
 
 **Regenerate keeps hand edits.** Blocks that are `manual` or already settled are retained and fed back as `GenerateOptions.reserved` — spans the generator routes around but does _not_ emit. `anchors` are emitted, `reserved` are not; passing a pinned block as an anchor duplicates it as an anchor-shaped copy of itself. Activities that already own a kept block are filtered out of the regeneration, or moving a block by hand leaves you with it _and_ a fresh copy back where it started.
+
+### Autopilot — the day runs itself
+
+`Settings.autopilot` (default on) makes a generated schedule act: each block is announced as it starts, timed, and asked about when it ends.
+
+**`src/shared/agenda.ts` is the single source of "what is happening now".** `blockAt` and `nextTransition` are read by **both** the main process and the renderer, because a notification announcing one task while the timer counts another is worse than either alone.
+
+The split is forced by lifecycle, not preference:
+
+- **Main owns notifications** (`armNextTransition` in `src/main/index.ts`). Closing the window destroys the renderer, and a day that stops announcing itself the moment you close the window is not running the day. Main survives with the tray and reads the same in-memory document. One pending timeout, recomputed on every fire and on every `data:save`, so a day edited underneath the alarm cannot leave a stale announcement armed. This replaced the old renderer-driven `timer:set-alarm` IPC, which died with the renderer.
+- **The renderer owns the timer** (`useAutopilot`), because starting one is a state change and the renderer owns all state. With the window closed nothing advances; reopening reconciles in one tick, which needs no special code because the prompt queues are derived.
+
+Three rules it must keep:
+
+- **The timer counts from the block's start, not from when the tick noticed** — hence `startTimer`'s optional `startedAt`. That is what makes `actualMinutes` mean "time from the block beginning until you said done", which is exactly what the early-finish check measures.
+- **It never answers on the user's behalf.** When a block's time is up it records `actualMinutes` and cancels the timer, leaving the block `planned`. It used to call `completeTimer`, which marks the block **done** — the prompt appeared and then vanished half a second later, because settling the block removes it from the derivation. Only running the app found this.
+- **A running block the user started outranks the schedule.** Autopilot returns early rather than stealing the timer.
+
+`useEndedBlocks` had to be relaxed to match: a timer on another block used to suppress the whole prompt queue, which under autopilot is _every handover_. A block that ended before the running one began is not competing for attention — it is the thing the running block replaced, and it still needs answering.
+
+Breaks and anchors get a timer and both notifications, but never the "did you finish?" prompt: `applyBlockStatus` refuses anything where `kind !== 'activity'`, and a prayer is not the user's to mark done.
+
+### Direct manipulation of the timeline
+
+Blocks are dragged to move and have edge handles to resize. `moveBlock` in `reschedule.ts` exists rather than reusing `editBlock` because their ripples differ: `editBlock` shifts from the block's **old end**, so dragging a block _earlier_ would pull the whole tail of the day earlier as a side effect. `moveBlock` pushes only what it collides with, only as far as the overlap demands. Both use `ripple: true` from the UI — asking mid-gesture is not an option, and a refused drop is worse than a day that moves.
+
+Four things the gestures have to work around, each of which broke it during development:
+
+- **`blockVariants` must not animate `y`.** Motion's `drag` writes that same value; a variant setting `y: 0` fights a drag setting `y: 120`. It animates `opacity`/`scale` instead.
+- **A drag ends in a click**, which Motion does not swallow — a ref set in `onDragStart` suppresses the sheet.
+- **The edge handles sit inside the block**, so both would start a gesture from one pointerdown. Stopping propagation cannot separate them: Motion binds natively to each element, so by the time a React handler runs both have already fired, and stopping it in the capture phase kills the handle's gesture too. Hovering a handle disables the block's drag _before_ the press instead.
+- **The timeline keys on `date`, not `blocks[0].id`** — a drop that changes which block is first would otherwise remount the whole timeline and replay every entry animation.
+
+`isImmovable` is checked in the drag handler, not just `isFixed`: done and partial blocks render as buttons but the geometry layer refuses them.
+
+### Editing the journal
+
+Entries are editable and deletable. The rule that makes it safe: **editing an auto entry promotes it to `kind: 'manual'` and drops its link.**
+
+`syncBlockJournal` matches by `scheduleBlockId` and is filter-then-append — it deletes and recreates a block's entry on _every_ status change. A link kept through an edit would let the next tick of a checkbox silently destroy what the user wrote, and un-marking the block would delete it outright. Severing the link means retraction only ever removes text the app itself generated.
 
 ### Prompts and pause
 

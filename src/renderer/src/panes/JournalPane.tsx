@@ -4,7 +4,14 @@ import { formatDateLabel, formatTimestamp, shiftDateKey } from '@shared/time'
 import { getDay } from '@shared/defaults'
 import { useData } from '../state/DataContext'
 import EmptyState from '../components/EmptyState'
-import { BookIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon } from '../components/icons'
+import {
+  BookIcon,
+  CheckIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  PencilIcon,
+  TrashIcon
+} from '../components/icons'
 
 function JournalPane(): React.JSX.Element {
   const { state, dispatch } = useData()
@@ -12,16 +19,28 @@ function JournalPane(): React.JSX.Element {
   const [text, setText] = useState('')
   const paneRef = useRef<HTMLDivElement>(null)
 
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [draft, setDraft] = useState('')
+
   // snap back to the new day when the date rolls over (adjust-state-during-render pattern)
   const [lastActiveDate, setLastActiveDate] = useState(state.activeDate)
   if (lastActiveDate !== state.activeDate) {
     setLastActiveDate(state.activeDate)
     setViewDate(state.activeDate)
+    // an editor left open across midnight would be pointed at yesterday's entry
+    setEditingId(null)
   }
 
   const day = getDay(state.data, viewDate)
   const entries = [...day.journal].sort((a, b) => a.timestamp.localeCompare(b.timestamp))
   const isToday = viewDate === state.activeDate
+
+  const saveEdit = (id: string): void => {
+    const trimmed = draft.trim()
+    if (!trimmed) return
+    dispatch({ type: 'updateJournalEntry', date: viewDate, id, text: trimmed })
+    setEditingId(null)
+  }
 
   const add = (): void => {
     const trimmed = text.trim()
@@ -86,8 +105,67 @@ function JournalPane(): React.JSX.Element {
                     Done
                   </span>
                 )}
-                <p className="journal-text">{entry.text}</p>
+                {editingId === entry.id ? (
+                  <>
+                    <textarea
+                      className="field"
+                      rows={2}
+                      value={draft}
+                      autoFocus
+                      onChange={(e) => setDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') setEditingId(null)
+                        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) saveEdit(entry.id)
+                      }}
+                      aria-label="Edit entry"
+                    />
+                    {entry.kind === 'auto' && (
+                      // saying this before the fact beats the entry quietly
+                      // changing character after the first save
+                      <p className="hint">
+                        Editing this makes it yours — it will stop tracking the block it came from.
+                      </p>
+                    )}
+                    <div className="journal-edit-actions">
+                      <button className="btn-ghost" onClick={() => setEditingId(null)}>
+                        Cancel
+                      </button>
+                      <button
+                        className="btn-primary"
+                        onClick={() => saveEdit(entry.id)}
+                        disabled={!draft.trim()}
+                      >
+                        Save
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <p className="journal-text">{entry.text}</p>
+                )}
               </div>
+              {editingId !== entry.id && (
+                <div className="journal-actions">
+                  <button
+                    className="icon-btn"
+                    onClick={() => {
+                      setEditingId(entry.id)
+                      setDraft(entry.text)
+                    }}
+                    aria-label={`Edit entry: ${entry.text}`}
+                  >
+                    <PencilIcon size={13} />
+                  </button>
+                  <button
+                    className="icon-btn danger"
+                    onClick={() =>
+                      dispatch({ type: 'deleteJournalEntry', date: viewDate, id: entry.id })
+                    }
+                    aria-label={`Delete entry: ${entry.text}`}
+                  >
+                    <TrashIcon size={13} />
+                  </button>
+                </div>
+              )}
             </motion.div>
           ))}
         </div>

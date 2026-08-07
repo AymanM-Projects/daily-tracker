@@ -239,6 +239,15 @@ export interface Settings {
   freeBufferEveryMinutes: number // insert one after this much focus work
   /** 'system' follows the OS; the other two are an explicit override */
   theme: ThemeChoice
+  /**
+   * Run the day automatically: announce each block as it starts, time it, and
+   * ask what happened when it ends.
+   *
+   * On by default, because a plan nobody is prompted about stops being true
+   * within the hour. It is a switch rather than a fact of the app because an
+   * automatic day is an opinion — a day spent in meetings wants it off.
+   */
+  autopilot: boolean
 }
 
 export type ThemeChoice = 'system' | 'light' | 'dark'
@@ -357,7 +366,7 @@ export interface BacklogTask {
 }
 
 export interface AppData {
-  version: 9
+  version: 10
   activeTimer: ActiveTimer | null
   dayPause: DayPause | null
   projects: Project[]

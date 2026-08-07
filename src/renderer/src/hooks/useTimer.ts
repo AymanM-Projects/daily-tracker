@@ -41,26 +41,11 @@ export function useTimer(): TimerView | null {
   const block = timer
     ? (getDay(state.data, timer.dateKey).schedule ?? []).find((b) => b.id === timer.blockId)
     : undefined
-  const blockName = block?.name
 
-  // hand the deadline to main, which owns the notification (renderer timers
-  // are throttled when the window is backgrounded)
-  const armed = timer && block && !timer.paused
-  const remainingAtArm = armed ? Math.max(0, plannedMsOf(block) - elapsedMs(timer)) : null
-
-  useEffect(() => {
-    if (remainingAtArm === null || !blockName) {
-      void window.api.setTimerAlarm(null)
-      return
-    }
-    void window.api.setTimerAlarm({
-      at: Date.now() + remainingAtArm,
-      title: 'Block finished',
-      body: `${blockName} — planned time is up.`
-    })
-    // re-arm only when the run itself changes, not on every tick
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timer?.blockId, timer?.paused, timer?.startedAt, timer?.accumulatedMs, blockName])
+  // Notifications are no longer armed from here. Main computes the day's next
+  // boundary from the schedule itself (see `armNextTransition`), so the
+  // announcements keep coming with the window closed — which is exactly when a
+  // renderer-armed alarm would have died with the renderer.
 
   if (!timer || !block) return null
 

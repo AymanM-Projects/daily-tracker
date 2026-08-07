@@ -3,7 +3,8 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import type { AppData } from '../shared/types'
-import type { TimerAlarm } from '../shared/types'
+import { nextTransition } from '../shared/agenda'
+import { minutesNow, todayKey } from '../shared/time'
 import { loadData, scheduleSave, flushPendingSave } from './store'
 import { getStatus, setApiKey } from './ai-config'
 import { testConnection } from './ai'
@@ -54,6 +55,55 @@ function createWindow(): void {
   }
 }
 
+/**
+ * Announce the day's next boundary, then re-arm for the one after it.
+ *
+ * Main owns this rather than the renderer for one blunt reason: closing the
+ * window destroys the renderer, and a day that stops telling you what is next
+ * the moment you close the window is not running the day. Main survives with
+ * the tray, and `loadData()` is the same in-memory document the renderer edits.
+ *
+ * One pending timeout, recomputed from the schedule every time it fires or the
+ * document changes — so a day edited underneath the alarm can never leave a
+ * stale announcement armed.
+ */
+function armNextTransition(): void {
+  if (alarmTimeout) {
+    clearTimeout(alarmTimeout)
+    alarmTimeout = null
+  }
+
+  const data = loadData()
+  if (!data.settings.autopilot || data.dayPause !== null) return
+
+  const now = new Date()
+  const schedule = data.days[todayKey(now)]?.schedule
+  if (!schedule) return
+
+  const next = nextTransition(schedule, minutesNow(now))
+  if (!next) return
+
+  // atMinute can exceed 1440 for a block running past midnight; anchoring on
+  // local midnight keeps that arithmetic honest across a DST boundary
+  const midnight = new Date(now)
+  midnight.setHours(0, 0, 0, 0)
+  const delay = midnight.getTime() + next.atMinute * 60_000 - now.getTime()
+
+  alarmTimeout = setTimeout(
+    () => {
+      alarmTimeout = null
+      if (Notification.isSupported()) {
+        const notification = new Notification({ title: next.title, body: next.body })
+        // answering "did you finish?" needs the window, so make it one click away
+        notification.on('click', showMainWindow)
+        notification.show()
+      }
+      armNextTransition()
+    },
+    Math.max(0, delay)
+  )
+}
+
 /** Reopen or refocus the app window — from the dock, or from the menu bar icon. */
 function showMainWindow(): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -78,6 +128,8 @@ app.whenReady().then(() => {
     scheduleSave(data)
     // the menu bar reads the same in-memory document, so it must not wait for the debounce
     refreshWidget()
+    // the schedule may have just moved under the pending announcement
+    armNextTransition()
   })
   ipcMain.handle('window:set-always-on-top', (event, flag: boolean) => {
     BrowserWindow.fromWebContents(event.sender)?.setAlwaysOnTop(flag, 'floating')
@@ -87,22 +139,7 @@ app.whenReady().then(() => {
   ipcMain.handle('ai:status', () => getStatus())
   ipcMain.handle('ai:set-key', (_event, key: string | null) => setApiKey(key))
   ipcMain.handle('ai:test', (_event, candidateKey?: string) => testConnection(candidateKey))
-  // The renderer's own timers are unreliable once the window is backgrounded,
-  // so main owns the alarm. One pending alarm at a time; null cancels it.
-  ipcMain.handle('timer:set-alarm', (_event, alarm: TimerAlarm | null) => {
-    if (alarmTimeout) {
-      clearTimeout(alarmTimeout)
-      alarmTimeout = null
-    }
-    if (!alarm) return
-    const delay = Math.max(0, alarm.at - Date.now())
-    alarmTimeout = setTimeout(() => {
-      alarmTimeout = null
-      if (Notification.isSupported()) {
-        new Notification({ title: alarm.title, body: alarm.body }).show()
-      }
-    }, delay)
-  })
+  armNextTransition()
 
   createWindow()
 

@@ -85,10 +85,24 @@ export type Action =
   | { type: 'updateRoutine'; routine: Routine }
   | { type: 'deleteRoutine'; id: string }
   | { type: 'addJournalEntry'; date: DateKey; text: string }
+  /**
+   * Rewrite an entry's text. An auto entry becomes `manual` and loses its link:
+   * `syncBlockJournal` deletes and recreates a block's entry on every status
+   * change, so a link kept here would let the next tick of a checkbox silently
+   * destroy what the user wrote.
+   */
+  | { type: 'updateJournalEntry'; date: DateKey; id: string; text: string }
+  | { type: 'deleteJournalEntry'; date: DateKey; id: string }
   | { type: 'setSchedule'; date: DateKey; blocks: ScheduleBlock[]; unscheduled: string[] }
   | { type: 'updateSettings'; patch: Partial<Settings> }
   | { type: 'updatePrayer'; patch: Partial<PrayerSettings> }
-  | { type: 'startTimer'; date: DateKey; blockId: string }
+  /**
+   * `startedAt` lets autopilot count from the block's own start rather than
+   * from the tick that noticed it. That is what makes `actualMinutes` mean
+   * "time from the block beginning until you said done", which is exactly what
+   * the early-finish check measures against.
+   */
+  | { type: 'startTimer'; date: DateKey; blockId: string; startedAt?: string }
   | { type: 'pauseTimer' }
   | { type: 'resumeTimer' }
   | { type: 'cancelTimer' }
@@ -538,6 +552,35 @@ function reducer(state: State, action: Action): State {
           recurringTasks: state.data.recurringTasks.filter((t) => t.id !== action.id)
         }
       }
+    case 'updateJournalEntry':
+      return {
+        ...state,
+        data: withDay(state.data, action.date, (day) => ({
+          ...day,
+          journal: day.journal.map((e) =>
+            e.id === action.id
+              ? // Editing takes ownership of the words. The link is dropped by
+                // rebuilding the entry without it — that is what stops
+                // `syncBlockJournal` rewriting them, and equally stops
+                // un-marking the block from deleting a sentence the app never wrote.
+                {
+                  id: e.id,
+                  kind: 'manual' as const,
+                  text: action.text,
+                  timestamp: e.timestamp
+                }
+              : e
+          )
+        }))
+      }
+    case 'deleteJournalEntry':
+      return {
+        ...state,
+        data: withDay(state.data, action.date, (day) => ({
+          ...day,
+          journal: day.journal.filter((e) => e.id !== action.id)
+        }))
+      }
     case 'addJournalEntry':
       return {
         ...state,
@@ -582,7 +625,7 @@ function reducer(state: State, action: Action): State {
           activeTimer: {
             dateKey: action.date,
             blockId: action.blockId,
-            startedAt: new Date().toISOString(),
+            startedAt: action.startedAt ?? new Date().toISOString(),
             accumulatedMs: 0,
             paused: false
           }

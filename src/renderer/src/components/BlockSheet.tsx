@@ -6,6 +6,7 @@ import { editBlock, removeBlock, type EditFailure } from '@shared/reschedule'
 import { useData } from '../state/DataContext'
 import { useTimer } from '../hooks/useTimer'
 import Sheet from './Sheet'
+import { describeEditFailure } from './editErrors'
 import TimeField from './TimeField'
 import { CheckIcon, ChevronRightIcon, PauseIcon, PlayIcon, SkipIcon, TrashIcon } from './icons'
 
@@ -13,23 +14,6 @@ interface BlockSheetProps {
   block: ScheduleBlock
   date: DateKey
   onClose: () => void
-}
-
-function describe(error: EditFailure): string {
-  switch (error.code) {
-    case 'collision':
-      return `Overlaps ${error.withName} (${formatClock(error.withStart)} – ${formatClock(error.withEnd)})`
-    case 'inverted':
-      return 'The end has to come after the start.'
-    case 'before-day-start':
-      return 'That starts before your day does.'
-    case 'generated-name':
-      return "This block's name comes from your task list, so it can't be renamed here."
-    case 'immovable':
-      return `${error.blockName} isn't yours to move.`
-    case 'not-found':
-      return 'That block is no longer here.'
-  }
 }
 
 /**
@@ -250,7 +234,7 @@ function BlockSheet({ block, date, onClose }: BlockSheetProps): React.JSX.Elemen
 
           {error && (
             <div className="edit-error">
-              <p className="hint hint-warn">{describe(error)}</p>
+              <p className="hint hint-warn">{describeEditFailure(error)}</p>
               {error.code === 'collision' && (
                 <button
                   className="switch"

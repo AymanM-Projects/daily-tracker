@@ -5,6 +5,7 @@ import {
   editBlock,
   extendBlock,
   insertBlock,
+  moveBlock,
   removeBlock,
   shiftAfter,
   spill,
@@ -563,5 +564,102 @@ describe('truncate', () => {
       'activity focus 09:00-09:40 Work',
       'free focus 09:40-11:00 Free'
     ])
+  })
+})
+
+describe('moveBlock', () => {
+  it('moves a block later, keeping its length', () => {
+    const day = [block({ id: 'a', start: '09:00', end: '10:00', name: 'A' })]
+    expect(lines(value(moveBlock(day, 'a', at(11), WINDOW)))).toEqual([
+      'activity focus 11:00-12:00 A'
+    ])
+  })
+
+  it('moves a block earlier, keeping its length', () => {
+    const day = [block({ id: 'a', start: '14:00', end: '15:00', name: 'A' })]
+    expect(lines(value(moveBlock(day, 'a', at(10), WINDOW)))).toEqual([
+      'activity focus 10:00-11:00 A'
+    ])
+  })
+
+  it('refuses a collision without ripple, naming what is in the way', () => {
+    const day = [
+      block({ id: 'a', start: '09:00', end: '10:00', name: 'A' }),
+      block({ id: 'b', start: '11:00', end: '12:00', name: 'B' })
+    ]
+    const r = moveBlock(day, 'a', at(11), WINDOW)
+    expect(r.ok ? 'ok' : `${r.error.code} ${'withName' in r.error ? r.error.withName : ''}`).toBe(
+      'collision B'
+    )
+  })
+
+  it('pushes only as far as the overlap demands, not by the whole block', () => {
+    // A (60m) slides 30m later onto B; B need only move 30m, not 60m
+    const day = [
+      block({ id: 'a', start: '09:00', end: '10:00', name: 'A' }),
+      block({ id: 'b', start: '10:00', end: '11:00', name: 'B' })
+    ]
+    expect(lines(value(moveBlock(day, 'a', at(9, 30), WINDOW, { ripple: true })))).toEqual([
+      'activity focus 09:30-10:30 A',
+      'activity focus 10:30-11:30 B'
+    ])
+  })
+
+  it('lets free time absorb the push so the rest of the day stays put', () => {
+    const day = [
+      block({ id: 'a', start: '09:00', end: '10:00', name: 'A' }),
+      free('f', at(10), at(10, 30)),
+      block({ id: 'b', start: '10:30', end: '11:30', name: 'B' })
+    ]
+    // A moves 30m later; the free block gives up its front, B never moves
+    expect(lines(value(moveBlock(day, 'a', at(9, 30), WINDOW, { ripple: true })))).toEqual([
+      'activity focus 09:30-10:30 A',
+      'activity focus 10:30-11:30 B'
+    ])
+  })
+
+  it('moving earlier does not drag the tail of the day with it', () => {
+    const day = [
+      block({ id: 'a', start: '14:00', end: '15:00', name: 'A' }),
+      block({ id: 'b', start: '15:00', end: '16:00', name: 'B' })
+    ]
+    // the whole point of moveBlock: B stays where it is
+    expect(lines(value(moveBlock(day, 'a', at(10), WINDOW, { ripple: true })))).toEqual([
+      'activity focus 10:00-11:00 A',
+      'activity focus 15:00-16:00 B'
+    ])
+  })
+
+  it('refuses an anchor', () => {
+    const day = [anchor('p', at(13), at(13, 20))]
+    const r = moveBlock(day, 'p', at(14), WINDOW)
+    expect(r.ok ? 'ok' : r.error.code).toBe('immovable')
+  })
+
+  it('refuses a settled block — history does not move', () => {
+    const day = [block({ id: 'a', status: 'done' })]
+    const r = moveBlock(day, 'a', at(14), WINDOW)
+    expect(r.ok ? 'ok' : r.error.code).toBe('immovable')
+  })
+
+  it('refuses a start before the day begins', () => {
+    const day = [block({ id: 'a' })]
+    const r = moveBlock(day, 'a', at(7), WINDOW)
+    expect(r.ok ? 'ok' : r.error.code).toBe('before-day-start')
+  })
+
+  it('refuses an unknown id', () => {
+    const r = moveBlock([block({ id: 'a' })], 'nope', at(11), WINDOW)
+    expect(r.ok ? 'ok' : r.error.code).toBe('not-found')
+  })
+
+  it('marks the block manual, so Regenerate keeps the hand placement', () => {
+    const out = value(moveBlock([block({ id: 'a' })], 'a', at(11), WINDOW))
+    expect(out[0].manual).toBe(true)
+  })
+
+  it('recomputes overflow against the day end', () => {
+    const out = value(moveBlock([block({ id: 'a' })], 'a', at(16, 30), WINDOW))
+    expect(out[0].overflow).toBe(true)
   })
 })

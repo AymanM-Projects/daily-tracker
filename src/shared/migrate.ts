@@ -5,7 +5,7 @@ import { defaultActivitySet, defaultPrayerSettings, defaultSettings } from './de
  * Bump this whenever the on-disk shape changes, and add a matching step to the
  * chain in `migrate()`. `src/main/store.ts` backs the file up before applying.
  */
-export const CURRENT_VERSION = 9
+export const CURRENT_VERSION = 10
 
 type AnyData = Record<string, unknown>
 
@@ -281,6 +281,19 @@ function v8ToV9(data: AnyData): AnyData {
 }
 
 /**
+ * v10 adds the autopilot switch. Nothing else moves: `defaultSettings()` supplies
+ * `true`, so an existing document starts running its day the first time it is
+ * opened — which is the point of the feature, and reversible from Settings.
+ */
+function v9ToV10(data: AnyData): AnyData {
+  return {
+    ...data,
+    version: 10,
+    settings: { ...defaultSettings(), ...asRecord(data.settings) }
+  }
+}
+
+/**
  * Upgrades a parsed document to CURRENT_VERSION. Steps run in sequence, so a
  * document several versions behind walks through each one in turn.
  */
@@ -294,5 +307,6 @@ export function migrate(raw: AnyData): AppData {
   if ((data.version as number) === 6) data = v6ToV7(data)
   if ((data.version as number) === 7) data = v7ToV8(data)
   if ((data.version as number) === 8) data = v8ToV9(data)
+  if ((data.version as number) === 9) data = v9ToV10(data)
   return data as unknown as AppData
 }

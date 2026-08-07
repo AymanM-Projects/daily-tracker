@@ -74,7 +74,17 @@ export function useEndedBlocks(): EndedBlocks {
       .filter((b) => b.kind === 'activity' && b.status === 'planned' && b.promptedAt === null)
       .filter((b) => blockSpan(b).end <= nowMin)
       .filter((b) => (deferred[b.id] ?? -Infinity) <= nowMin)
-      .filter((b) => !(timer && timer.blockId !== b.id))
+      // A timer on another block used to suppress this queue outright — that
+      // block is the user's declared attention. Autopilot breaks that reading:
+      // it starts the NEXT block the moment this one ends, so the question
+      // "did you finish?" would be swallowed at every handover. A block that
+      // ended before the running one began is not competing for attention; it
+      // is the thing the running block replaced, and it still needs answering.
+      .filter((b) => {
+        if (!timer || timer.blockId === b.id) return true
+        const running = schedule.find((x) => x.id === timer.blockId)
+        return running ? blockSpan(b).end <= blockSpan(running).start : true
+      })
       .sort((a, b) => blockSpan(a).end - blockSpan(b).end)
 
     const fresh = candidates.filter((b) => nowMin - blockSpan(b).end <= PROMPT_WINDOW_MINUTES)

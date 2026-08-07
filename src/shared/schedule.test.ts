@@ -13,6 +13,7 @@ function settings(over: Partial<Settings> = {}): Settings {
     freeBufferMinutes: 30,
     freeBufferEveryMinutes: 120,
     theme: 'system',
+    autopilot: true,
     ...over
   }
 }

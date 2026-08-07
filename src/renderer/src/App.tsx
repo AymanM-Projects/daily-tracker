@@ -5,6 +5,7 @@ import TitleBar from './components/TitleBar'
 import TabBar, { type TabId } from './components/TabBar'
 import DayPrompts from './components/DayPrompts'
 import { useTheme } from './hooks/useTheme'
+import { useAutopilot } from './hooks/useAutopilot'
 import { useData } from './state/DataContext'
 import SchedulePane from './panes/SchedulePane'
 import ChecklistPane from './panes/ChecklistPane'
@@ -27,10 +28,17 @@ function renderPane(tab: TabId): React.JSX.Element {
   }
 }
 
-/** Inside the provider, since the choice lives in Settings. */
+/**
+ * Inside the provider, since both of these read Settings.
+ *
+ * Autopilot lives here rather than in a pane so it keeps running across tab
+ * switches — panes unmount, and a day that only advances while you are looking
+ * at the schedule would be worse than none at all.
+ */
 function Themed({ children }: { children: React.ReactNode }): React.JSX.Element {
   const { settings } = useData()
   useTheme(settings.theme)
+  useAutopilot()
   return <>{children}</>
 }
 

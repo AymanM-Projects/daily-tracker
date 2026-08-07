@@ -172,6 +172,35 @@ function SettingsPane(): React.JSX.Element {
         </div>
       </div>
 
+      <h2 className="pane-title">Running the day</h2>
+      <div className="setting-card">
+        <div className="setting-row">
+          <span className="setting-label">
+            Run my schedule
+            <span className="setting-hint">
+              Announce each block as it starts, time it, and ask what happened when it ends
+            </span>
+          </span>
+          <button
+            className="switch"
+            role="switch"
+            aria-checked={settings.autopilot}
+            aria-label="Run my schedule automatically"
+            onClick={() =>
+              dispatch({ type: 'updateSettings', patch: { autopilot: !settings.autopilot } })
+            }
+          >
+            <span className="switch-track">
+              <motion.span
+                layout
+                className="switch-thumb"
+                transition={{ type: 'spring', stiffness: 600, damping: 32 }}
+              />
+            </span>
+          </button>
+        </div>
+      </div>
+
       <h2 className="pane-title">
         <SunriseIcon size={12} />
         Routines

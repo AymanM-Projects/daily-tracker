@@ -1,15 +1,25 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import type { ScheduleBlock } from '@shared/types'
 import { generateSchedule, type Anchor } from '@shared/schedule'
 import { dayAnchors } from '@shared/anchors'
-import { blockSpan, byStart, freeIntervals } from '@shared/blocks'
-import { formatClock, formatClockMinutes, formatMinutes, minutesNow, parseHM } from '@shared/time'
+import { blockSpan, byStart, freeIntervals, isImmovable } from '@shared/blocks'
+import { editBlock, moveBlock } from '@shared/reschedule'
+import {
+  formatClock,
+  formatClockMinutes,
+  formatHM,
+  formatMinutes,
+  minutesNow,
+  parseHM
+} from '@shared/time'
 import { useData } from '../state/DataContext'
 import { useTimer } from '../hooks/useTimer'
 import { useEndedBlocks } from '../hooks/useEndedBlocks'
 import EmptyState from '../components/EmptyState'
 import BlockSheet from '../components/BlockSheet'
+import { describeEditFailure } from '../components/editErrors'
+import NewBlockSheet from '../components/NewBlockSheet'
 import TimeField from '../components/TimeField'
 import {
   AlertIcon,
@@ -19,6 +29,7 @@ import {
   MoonIcon,
   PlayIcon,
   SkipIcon,
+  PlusIcon,
   SparklesIcon,
   SunriseIcon
 } from '../components/icons'
@@ -38,10 +49,28 @@ const timelineVariants = {
   show: { transition: { staggerChildren: 0.05 } }
 }
 
+/**
+ * Deliberately does NOT animate `y`. Motion's `drag` writes to that same motion
+ * value, so a variant setting `y: 0` and a drag setting `y: 120` fight each
+ * other — any re-propagation from the parent snaps a half-dragged block back to
+ * its origin. Scale carries the same entrance feeling and stays out of the way.
+ */
 const blockVariants = {
-  hidden: { opacity: 0, y: 14 },
-  show: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 380, damping: 28 } as const }
+  hidden: { opacity: 0, scale: 0.96 },
+  show: {
+    opacity: 1,
+    scale: 1,
+    transition: { type: 'spring', stiffness: 380, damping: 28 } as const
+  }
 }
+
+/** Minutes the grid snaps to while dragging — fine enough to be useful, coarse enough to hit. */
+const SNAP_MINUTES = 5
+
+/** Below this a block has no room for edge handles; use the sheet instead. */
+const MIN_RESIZABLE_PX = 30
+
+const snap = (minutes: number): number => Math.round(minutes / SNAP_MINUTES) * SNAP_MINUTES
 
 interface LaneProps {
   blocks: ScheduleBlock[]
@@ -50,6 +79,10 @@ interface LaneProps {
   className: string
   runningId: string | null
   onSelect: (block: ScheduleBlock) => void
+  /** dropped at a new start, duration unchanged */
+  onMove: (block: ScheduleBlock, startMin: number) => void
+  /** one edge dragged; the other stays put */
+  onResize: (block: ScheduleBlock, edge: 'start' | 'end', minute: number) => void
 }
 
 function Lane({
@@ -58,8 +91,25 @@ function Lane({
   nowMin,
   className,
   runningId,
-  onSelect
+  onSelect,
+  onMove,
+  onResize
 }: LaneProps): React.JSX.Element {
+  // A drag ends with a click, and Motion does not swallow it — without this the
+  // sheet would open every time a block is dropped.
+  const draggedRef = useRef(false)
+  const [dragMinutes, setDragMinutes] = useState<{ id: string; start: number; end: number } | null>(
+    null
+  )
+  // Hovering an edge handle disables the block's own drag.
+  //
+  // The handles sit INSIDE the block, so both would otherwise start a gesture
+  // from the same pointerdown. Stopping propagation cannot separate them:
+  // Motion binds natively to each element, so by the time a React handler runs
+  // both native listeners have already fired — and stopping it in the capture
+  // phase kills the handle's gesture along with the block's. Choosing which
+  // element is draggable before the press avoids the conflict entirely.
+  const [onHandle, setOnHandle] = useState(false)
   // DOM order is emission order — anchors, then focus, then parallel, with
   // replan appending placements afterwards. Blocks are absolutely positioned, so
   // without an explicit sort a later block paints over an earlier one wherever
@@ -178,22 +228,59 @@ function Lane({
         )
 
         // breaks and prayers aren't markable, so they stay non-interactive
-        return isFixed ? (
-          <motion.div
-            key={block.id}
-            className={classes}
-            variants={blockVariants}
-            style={{ top: (start - dayStartMin) * PX_PER_MIN, height, zIndex: index }}
-          >
-            {body}
-          </motion.div>
-        ) : (
+        if (isFixed) {
+          return (
+            <motion.div
+              key={block.id}
+              className={classes}
+              variants={blockVariants}
+              style={{ top: (start - dayStartMin) * PX_PER_MIN, height, zIndex: index }}
+            >
+              {body}
+            </motion.div>
+          )
+        }
+
+        // Settled and skipped blocks still render as buttons, but `moveBlock`
+        // refuses them — history does not move. Guarding here rather than
+        // letting the drag start and fail keeps the refusal honest.
+        const draggable = !isImmovable(block)
+        const live = dragMinutes?.id === block.id ? dragMinutes : null
+
+        return (
           <motion.button
             key={block.id}
-            className={classes}
+            className={live ? `${classes} is-dragging` : classes}
             variants={blockVariants}
-            style={{ top: (start - dayStartMin) * PX_PER_MIN, height, zIndex: index }}
-            onClick={() => onSelect(block)}
+            style={{
+              top: (start - dayStartMin) * PX_PER_MIN,
+              height,
+              // the day's first block has zIndex 0 and would slide under its
+              // neighbours; lift whatever is being dragged clear of everything
+              zIndex: live ? 500 : index
+            }}
+            drag={draggable && !onHandle ? 'y' : false}
+            dragMomentum={false}
+            dragSnapToOrigin
+            onDragStart={() => {
+              draggedRef.current = true
+              setDragMinutes({ id: block.id, start, end })
+            }}
+            onDrag={(_e, info) => {
+              const delta = snap(info.offset.y / PX_PER_MIN)
+              setDragMinutes({ id: block.id, start: start + delta, end: end + delta })
+            }}
+            onDragEnd={(_e, info) => {
+              setDragMinutes(null)
+              const delta = snap(info.offset.y / PX_PER_MIN)
+              if (delta !== 0) onMove(block, start + delta)
+              // let the trailing click land first, then re-enable selection
+              setTimeout(() => (draggedRef.current = false), 0)
+            }}
+            onClick={() => {
+              if (draggedRef.current) return
+              onSelect(block)
+            }}
             aria-label={
               isFree
                 ? `Free time, ${formatClock(block.start)} to ${formatClock(block.end)}`
@@ -201,6 +288,73 @@ function Lane({
             }
           >
             {body}
+            {live && (
+              <span className="drag-time">
+                {formatClockMinutes(live.start)} – {formatClockMinutes(live.end)}
+              </span>
+            )}
+            {draggable && height >= MIN_RESIZABLE_PX && (
+              <>
+                <motion.span
+                  className="resize-handle top"
+                  drag="y"
+                  dragMomentum={false}
+                  dragSnapToOrigin
+                  onPointerEnter={() => setOnHandle(true)}
+                  onPointerLeave={() => setOnHandle(false)}
+                  onDragStart={() => {
+                    draggedRef.current = true
+                    setDragMinutes({ id: block.id, start, end })
+                  }}
+                  onDrag={(_e, info) =>
+                    setDragMinutes({
+                      id: block.id,
+                      start: Math.min(start + snap(info.offset.y / PX_PER_MIN), end - SNAP_MINUTES),
+                      end
+                    })
+                  }
+                  onDragEnd={(_e, info) => {
+                    setDragMinutes(null)
+                    const next = Math.min(
+                      start + snap(info.offset.y / PX_PER_MIN),
+                      end - SNAP_MINUTES
+                    )
+                    if (next !== start) onResize(block, 'start', next)
+                    setTimeout(() => (draggedRef.current = false), 0)
+                  }}
+                  aria-hidden="true"
+                />
+                <motion.span
+                  className="resize-handle bottom"
+                  drag="y"
+                  dragMomentum={false}
+                  dragSnapToOrigin
+                  onPointerEnter={() => setOnHandle(true)}
+                  onPointerLeave={() => setOnHandle(false)}
+                  onDragStart={() => {
+                    draggedRef.current = true
+                    setDragMinutes({ id: block.id, start, end })
+                  }}
+                  onDrag={(_e, info) =>
+                    setDragMinutes({
+                      id: block.id,
+                      start,
+                      end: Math.max(end + snap(info.offset.y / PX_PER_MIN), start + SNAP_MINUTES)
+                    })
+                  }
+                  onDragEnd={(_e, info) => {
+                    setDragMinutes(null)
+                    const next = Math.max(
+                      end + snap(info.offset.y / PX_PER_MIN),
+                      start + SNAP_MINUTES
+                    )
+                    if (next !== end) onResize(block, 'end', next)
+                    setTimeout(() => (draggedRef.current = false), 0)
+                  }}
+                  aria-hidden="true"
+                />
+              </>
+            )}
           </motion.button>
         )
       })}
@@ -219,6 +373,8 @@ function SchedulePane(): React.JSX.Element {
   // a stopped clock is the truthful rendering when the day's clock is stopped
   const nowMin = pause ? minutesOfISO(pause.pausedAt) : liveNow
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [dragError, setDragError] = useState<string | null>(null)
+  const [addingBlock, setAddingBlock] = useState(false)
 
   useEffect(() => {
     const interval = setInterval(() => setLiveNow(minutesNow()), 30_000)
@@ -274,7 +430,31 @@ function SchedulePane(): React.JSX.Element {
     dispatch({ type: 'replan', date })
   }
 
+  /**
+   * Commit a gesture, or say why it was refused.
+   *
+   * `ripple: true` throughout: dropping a block onto an occupied slot pushes the
+   * rest of the day down, absorbing into breaks and free time first. Asking
+   * mid-gesture is not an option, and refusing a drop the user clearly meant is
+   * worse than moving the day — which is undoable by dragging back.
+   */
+  const commit = (result: ReturnType<typeof moveBlock>): void => {
+    if (!result.ok) {
+      setDragError(describeEditFailure(result.error))
+      return
+    }
+    setDragError(null)
+    dispatch({ type: 'setDaySchedule', date, blocks: result.value })
+  }
+
+  const onMove = (block: ScheduleBlock, startMin: number): void =>
+    commit(moveBlock(blocks, block.id, startMin, dayWindow, { ripple: true }))
+
+  const onResize = (block: ScheduleBlock, edge: 'start' | 'end', minute: number): void =>
+    commit(editBlock(blocks, block.id, { [edge]: minute }, dayWindow, { ripple: true }))
+
   const blocks = today.schedule ?? []
+  const dayWindow = { dayStart: dayStartMin, dayEnd: dayEndMin }
   const selectedBlock = blocks.find((b) => b.id === selectedId) ?? null
   const focusBlocks = blocks.filter((b) => b.lane === 'focus')
   const parallelBlocks = blocks.filter((b) => b.lane === 'parallel')
@@ -295,7 +475,20 @@ function SchedulePane(): React.JSX.Element {
 
   return (
     <div className="pane">
-      <h2 className="pane-title">Day plan</h2>
+      <h2 className="pane-title">
+        Day plan
+        <span className="grow" />
+        {today.schedule && (
+          <button
+            className="btn-ghost"
+            onClick={() => setAddingBlock(true)}
+            aria-label="Add a block by hand"
+          >
+            <PlusIcon size={13} />
+            Add block
+          </button>
+        )}
+      </h2>
       <div className="sched-controls">
         <div className="sched-row">
           <span className="time-label">
@@ -401,7 +594,7 @@ function SchedulePane(): React.JSX.Element {
             </div>
           )}
           <motion.div
-            key={blocks[0].id}
+            key={date}
             className={pause ? 'timeline is-paused' : 'timeline'}
             style={{ height: timelineHeight + 12 }}
             variants={timelineVariants}
@@ -424,6 +617,20 @@ function SchedulePane(): React.JSX.Element {
                   {m % 60 === 0 && <span className="hourline-label">{formatClockMinutes(m)}</span>}
                 </div>
               ))}
+              {/* a refused gesture has no sheet to report into, so it says so here */}
+              <AnimatePresence>
+                {dragError && (
+                  <motion.button
+                    className="drag-error"
+                    initial={{ opacity: 0, y: -6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0 }}
+                    onClick={() => setDragError(null)}
+                  >
+                    {dragError}
+                  </motion.button>
+                )}
+              </AnimatePresence>
               <div className="lanes">
                 <Lane
                   blocks={focusBlocks}
@@ -431,6 +638,8 @@ function SchedulePane(): React.JSX.Element {
                   nowMin={showNowLine ? nowMin : null}
                   runningId={timer?.block.id ?? null}
                   onSelect={(b) => setSelectedId(b.id)}
+                  onMove={onMove}
+                  onResize={onResize}
                   className="lane"
                 />
                 {hasParallel && (
@@ -440,6 +649,8 @@ function SchedulePane(): React.JSX.Element {
                     nowMin={showNowLine ? nowMin : null}
                     runningId={timer?.block.id ?? null}
                     onSelect={(b) => setSelectedId(b.id)}
+                    onMove={onMove}
+                    onResize={onResize}
                     className="lane lane-parallel"
                   />
                 )}
@@ -465,6 +676,17 @@ function SchedulePane(): React.JSX.Element {
         </>
       )}
 
+      <AnimatePresence>
+        {addingBlock && (
+          <NewBlockSheet
+            date={date}
+            // opening on the next round hour beats opening on dayStart, which is
+            // usually hours behind by the time you want to add something
+            defaultStart={formatHM(Math.min(Math.ceil(nowMin / 60) * 60, dayEndMin))}
+            onClose={() => setAddingBlock(false)}
+          />
+        )}
+      </AnimatePresence>
       <AnimatePresence>
         {selectedBlock && (
           <BlockSheet
