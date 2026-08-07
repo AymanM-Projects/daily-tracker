@@ -3,6 +3,7 @@ import { AnimatePresence, MotionConfig, motion } from 'motion/react'
 import { DataProvider } from './state/DataContext'
 import TitleBar from './components/TitleBar'
 import TabBar, { type TabId } from './components/TabBar'
+import DayPrompts from './components/DayPrompts'
 import SchedulePane from './panes/SchedulePane'
 import ChecklistPane from './panes/ChecklistPane'
 import ActivitiesPane from './panes/ActivitiesPane'
@@ -47,6 +48,9 @@ function App(): React.JSX.Element {
             </AnimatePresence>
           </main>
           <TabBar active={tab} onChange={setTab} />
+          {/* outside the pane AnimatePresence on purpose: panes unmount on tab
+              switch, and a prompt must survive that */}
+          <DayPrompts />
         </div>
       </DataProvider>
     </MotionConfig>

@@ -7,6 +7,7 @@ import { blockSpan, byStart } from '@shared/blocks'
 import { formatClock, formatClockMinutes, minutesNow, parseHM } from '@shared/time'
 import { useData } from '../state/DataContext'
 import { useTimer } from '../hooks/useTimer'
+import { useEndedBlocks } from '../hooks/useEndedBlocks'
 import EmptyState from '../components/EmptyState'
 import BlockSheet from '../components/BlockSheet'
 import {
@@ -169,6 +170,7 @@ function SchedulePane(): React.JSX.Element {
   const { state, today, activities, settings, prayer, dispatch } = useData()
   const date = state.activeDate
   const timer = useTimer()
+  const { stale } = useEndedBlocks()
   const [nowMin, setNowMin] = useState(minutesNow())
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
@@ -308,6 +310,29 @@ function SchedulePane(): React.JSX.Element {
           </p>
         )}
       </div>
+
+      {/*
+        Being asked at 4pm whether you finished the 3:50 block is the feature;
+        being asked about the 9am one is noise. Anything past the window lands
+        here instead of interrupting. "Leave them" stamps promptedAt with no
+        status change — the record then says "we asked, you declined to answer",
+        which is true, rather than inventing an outcome.
+      */}
+      {stale.length > 0 && (
+        <div className="catchup">
+          <span className="catchup-text">
+            {stale.length} block{stale.length === 1 ? '' : 's'} ended while you were away
+          </span>
+          <button
+            className="sheet-btn"
+            onClick={() =>
+              stale.forEach((b) => dispatch({ type: 'markBlockPrompted', date, blockId: b.id }))
+            }
+          >
+            Leave them
+          </button>
+        </div>
+      )}
 
       {today.schedule === null || blocks.length === 0 ? (
         <EmptyState

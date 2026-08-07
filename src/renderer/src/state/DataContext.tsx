@@ -25,6 +25,8 @@ import type {
 } from '@shared/types'
 import type { Anchor } from '@shared/schedule'
 import { defaultAppData, getDay } from '@shared/defaults'
+import { blockMinutes } from '@shared/blocks'
+import { extendBlock as extendGeometry } from '@shared/reschedule'
 import { elapsedMinutes } from '@shared/timer'
 import { pendingRules } from '@shared/recurrence'
 import { PLAN_DEFAULTS, planBacklog } from '@shared/plan'
@@ -90,6 +92,15 @@ export type Action =
    * actually name what is in the way, rather than failing silently in here.
    */
   | { type: 'setDaySchedule'; date: DateKey; blocks: ScheduleBlock[] }
+  /** "more time now" — grow the block, letting free time absorb what it can */
+  | { type: 'extendBlock'; date: DateKey; blockId: string; minutes: number }
+  /**
+   * "keep it for later" — the slot was spent but the work is not done, so the
+   * block settles as `partial` and the unfinished minutes go back to the planner.
+   */
+  | { type: 'bankBlockTime'; date: DateKey; blockId: string; minutes: number }
+  /** the prompt was answered or explicitly waived; a dismissal never lands here */
+  | { type: 'markBlockPrompted'; date: DateKey; blockId: string }
 
 function withDay(data: AppData, date: DateKey, mutate: (day: DayData) => DayData): AppData {
   return { ...data, days: { ...data.days, [date]: mutate(getDay(data, date)) } }
@@ -116,14 +127,17 @@ function syncBlockJournal(
   actualMinutes: number | null
 ): JournalEntry[] {
   const without = day.journal.filter((e) => e.scheduleBlockId !== block.id)
-  if (status !== 'done') return without
+  if (status !== 'done' && status !== 'partial') return without
   const took = actualMinutes !== null ? ` (${actualMinutes}m)` : ''
   return [
     ...without,
     {
       id: crypto.randomUUID(),
       kind: 'auto' as const,
-      text: `Completed: ${block.name}${took}`,
+      // 'partial' exists so this line can stay true. Without it, "keep for later"
+      // would have to record `done`, and the journal would claim an essay was
+      // finished that is not — the one thing it must never do.
+      text: `${status === 'done' ? 'Completed' : 'Worked on'}: ${block.name}${took}`,
       timestamp: new Date().toISOString(),
       scheduleBlockId: block.id
     }
@@ -499,6 +513,66 @@ function reducer(state: State, action: Action): State {
       return {
         ...state,
         data: withDay(state.data, action.date, (day) => ({ ...day, schedule: action.blocks }))
+      }
+    case 'extendBlock': {
+      const day = getDay(state.data, action.date)
+      if (!day.schedule) return state
+      const grown = extendGeometry(day.schedule, action.blockId, action.minutes)
+      const withBlocks = withDay(state.data, action.date, (d) => ({ ...d, schedule: grown.blocks }))
+      // extending can push work past the day end, which frees nothing but may
+      // change what still fits; replanning keeps the backlog honest either way
+      return { ...state, data: replan(withBlocks, action.date) }
+    }
+    case 'bankBlockTime': {
+      const day = getDay(state.data, action.date)
+      const block = day.schedule?.find((b) => b.id === action.blockId)
+      if (!block || block.kind !== 'activity') return state
+
+      const spent = blockMinutes(block)
+      const settled = applyBlockStatus(state.data, action.date, action.blockId, 'partial', spent)
+      const stamped = withDay(settled, action.date, (d) =>
+        mapBlock(d, action.blockId, (b) => ({ ...b, promptedAt: new Date().toISOString() }))
+      )
+
+      // `planBacklog` derives remaining work as estimate minus minutes already
+      // placed, so raising the estimate IS "give me N more minutes, somewhere".
+      let backlog = stamped.backlog
+      if (block.backlogTaskId !== null) {
+        backlog = backlog.map((t) =>
+          t.id === block.backlogTaskId
+            ? { ...t, estimateMinutes: (t.estimateMinutes ?? spent) + action.minutes }
+            : t
+        )
+      } else {
+        // A generated activity block has no task to raise. Minting one is the only
+        // bridge from the activity world into the planner, which has no notion of
+        // `Activity` at all — without it the unfinished work has no way to move.
+        const source = stamped.activities.find((a) => a.id === block.activityId)
+        backlog = [
+          ...backlog,
+          {
+            id: crypto.randomUUID(),
+            text: block.name,
+            priority: source?.priority ?? 2,
+            estimateMinutes: action.minutes,
+            dueDate: null,
+            done: false,
+            completedAt: null,
+            createdAt: new Date().toISOString()
+          }
+        ]
+      }
+      return { ...state, data: replan({ ...stamped, backlog }, action.date) }
+    }
+    case 'markBlockPrompted':
+      return {
+        ...state,
+        data: withDay(state.data, action.date, (day) =>
+          mapBlock(day, action.blockId, (b) => ({
+            ...b,
+            promptedAt: new Date().toISOString()
+          }))
+        )
       }
   }
 }
