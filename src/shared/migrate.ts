@@ -5,7 +5,7 @@ import { defaultActivitySet, defaultPrayerSettings, defaultSettings } from './de
  * Bump this whenever the on-disk shape changes, and add a matching step to the
  * chain in `migrate()`. `src/main/store.ts` backs the file up before applying.
  */
-export const CURRENT_VERSION = 5
+export const CURRENT_VERSION = 6
 
 type AnyData = Record<string, unknown>
 
@@ -138,6 +138,59 @@ function v4ToV5(data: AnyData): AnyData {
 }
 
 /**
+ * v6 turns the per-day checklist into a standing backlog. Tasks stop belonging
+ * to a date and instead carry an optional due date, so unfinished work survives
+ * the day instead of dying with it.
+ *
+ * Items are MOVED, not copied: each keeps its text, estimate and recurring link,
+ * and gains `dueDate` set to the day it used to live on so nothing loses its
+ * context. Priority defaults to medium because per-day items never had one.
+ * `day.checklist` is emptied rather than deleted, so a half-read older build
+ * still finds the field it expects.
+ */
+function v5ToV6(data: AnyData): AnyData {
+  const days = asRecord(data.days)
+  const backlog = asArray(data.backlog)
+
+  for (const [date, day] of Object.entries(days)) {
+    for (const item of asArray(day.checklist)) {
+      backlog.push({
+        id: item.id,
+        text: item.text,
+        priority: 2,
+        estimateMinutes: item.estimateMinutes ?? null,
+        dueDate: date,
+        done: Boolean(item.done),
+        completedAt: item.completedAt ?? null,
+        createdAt: item.createdAt ?? new Date().toISOString(),
+        ...(item.recurringTaskId ? { recurringTaskId: item.recurringTaskId } : {})
+      })
+    }
+  }
+
+  return {
+    ...data,
+    version: 6,
+    backlog,
+    days: Object.fromEntries(
+      Object.entries(days).map(([key, day]) => [
+        key,
+        {
+          ...day,
+          checklist: [],
+          schedule: Array.isArray(day.schedule)
+            ? (day.schedule as AnyData[]).map((b) => ({
+                ...b,
+                backlogTaskId: b.backlogTaskId ?? null
+              }))
+            : day.schedule
+        }
+      ])
+    )
+  }
+}
+
+/**
  * Upgrades a parsed document to CURRENT_VERSION. Steps run in sequence, so a
  * document several versions behind walks through each one in turn.
  */
@@ -147,5 +200,6 @@ export function migrate(raw: AnyData): AppData {
   if ((data.version as number) === 2) data = v2ToV3(data)
   if ((data.version as number) === 3) data = v3ToV4(data)
   if ((data.version as number) === 4) data = v4ToV5(data)
+  if ((data.version as number) === 5) data = v5ToV6(data)
   return data as unknown as AppData
 }

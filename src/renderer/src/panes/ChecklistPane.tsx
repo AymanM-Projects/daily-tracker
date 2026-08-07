@@ -1,38 +1,66 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import { formatMinutes, minutesNow, parseHM } from '@shared/time'
+import type { BacklogTask, DateKey, Priority } from '@shared/types'
+import { formatClock, formatDateLabel, formatMinutes, todayKey } from '@shared/time'
 import { useData } from '../state/DataContext'
 import EmptyState from '../components/EmptyState'
 import RecurringSheet from '../components/RecurringSheet'
 import { CheckIcon, CheckSquareIcon, PlusIcon, RepeatIcon, TrashIcon } from '../components/icons'
 
-const listVariants = {
-  hidden: {},
-  show: { transition: { staggerChildren: 0.045 } }
-}
+const PRIORITY_LABELS: Record<Priority, string> = { 1: 'High', 2: 'Med', 3: 'Low' }
 
+const listVariants = { hidden: {}, show: { transition: { staggerChildren: 0.045 } } }
 const itemVariants = {
   hidden: { opacity: 0, y: 10 },
   show: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 420, damping: 30 } as const }
 }
 
+/** Priority, then soonest deadline, then oldest — the same order the planner uses. */
+function sortBacklog(tasks: BacklogTask[]): BacklogTask[] {
+  return [...tasks].sort(
+    (a, b) =>
+      a.priority - b.priority ||
+      (a.dueDate ?? '9999-12-31').localeCompare(b.dueDate ?? '9999-12-31') ||
+      a.createdAt.localeCompare(b.createdAt)
+  )
+}
+
+function dueLabel(due: DateKey): string {
+  const today = todayKey()
+  if (due === today) return 'today'
+  if (due < today) return 'overdue'
+  return formatDateLabel(due).replace(/,.*/, '')
+}
+
 function ChecklistPane(): React.JSX.Element {
-  const { state, today, settings, dispatch } = useData()
+  const { state, backlog, dispatch } = useData()
   const [text, setText] = useState('')
   const [estimate, setEstimate] = useState('')
+  const [priority, setPriority] = useState<Priority>(2)
+  const [due, setDue] = useState('')
+  const [showDone, setShowDone] = useState(false)
   const [showRecurring, setShowRecurring] = useState(false)
   const date = state.activeDate
-  const doneCount = today.checklist.filter((i) => i.done).length
 
-  // what's left to do, weighed against what's left of the day
-  const plannedMinutes = today.checklist
-    .filter((i) => !i.done)
-    .reduce((sum, i) => sum + (i.estimateMinutes ?? 0), 0)
-  const freeMinutes = Math.max(
-    0,
-    parseHM(settings.dayEnd) - Math.max(minutesNow(), parseHM(settings.dayStart))
-  )
-  const overcommitted = plannedMinutes > freeMinutes
+  const open = useMemo(() => sortBacklog(backlog.filter((t) => !t.done)), [backlog])
+  const done = useMemo(() => backlog.filter((t) => t.done), [backlog])
+
+  /** Where each task's work actually landed, so the list can say when it happens. */
+  const placedAt = useMemo(() => {
+    const map = new Map<string, { date: DateKey; start: string }>()
+    for (const [day, data] of Object.entries(state.data.days)) {
+      for (const b of data.schedule ?? []) {
+        if (!b.backlogTaskId) continue
+        const prev = map.get(b.backlogTaskId)
+        if (!prev || day < prev.date || (day === prev.date && b.start < prev.start)) {
+          map.set(b.backlogTaskId, { date: day, start: b.start })
+        }
+      }
+    }
+    return map
+  }, [state.data.days])
+
+  const totalLeft = open.reduce((sum, t) => sum + (t.estimateMinutes ?? 0), 0)
 
   const add = (e: React.FormEvent): void => {
     e.preventDefault()
@@ -40,24 +68,23 @@ function ChecklistPane(): React.JSX.Element {
     if (!trimmed) return
     const mins = Number.parseInt(estimate, 10)
     dispatch({
-      type: 'addChecklistItem',
+      type: 'addBacklogTask',
       date,
       text: trimmed,
-      estimateMinutes: Number.isFinite(mins) && mins > 0 ? mins : null
+      estimateMinutes: Number.isFinite(mins) && mins > 0 ? mins : null,
+      priority,
+      dueDate: due || null
     })
     setText('')
     setEstimate('')
+    setDue('')
   }
 
   return (
     <div className="pane">
       <h2 className="pane-title">
-        Today&apos;s checklist
-        {today.checklist.length > 0 && (
-          <span className="count">
-            {doneCount}/{today.checklist.length}
-          </span>
-        )}
+        Everything to do
+        {open.length > 0 && <span className="count">{open.length}</span>}
         <span className="grow" />
         <button
           className="btn-ghost"
@@ -69,22 +96,14 @@ function ChecklistPane(): React.JSX.Element {
         </button>
       </h2>
 
-      {plannedMinutes > 0 && (
-        <p className={overcommitted ? 'budget over' : 'budget'}>
-          {formatMinutes(plannedMinutes)} of work left
-          <span className="budget-sep">·</span>
-          {freeMinutes > 0
-            ? `${formatMinutes(freeMinutes)} before your day ends`
-            : 'your day window is over'}
-        </p>
-      )}
+      {totalLeft > 0 && <p className="budget">{formatMinutes(totalLeft)} of work on the list</p>}
 
       <form className="add-row" onSubmit={add}>
         <input
           className="field"
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="Add a task for today…"
+          placeholder="Add anything you have to do…"
           aria-label="New task"
         />
         <input
@@ -96,7 +115,7 @@ function ChecklistPane(): React.JSX.Element {
           onChange={(e) => setEstimate(e.target.value)}
           placeholder="min"
           aria-label="Estimated minutes"
-          title="Estimate in minutes (optional)"
+          title="Estimate in minutes — needed for it to be scheduled"
         />
         <motion.button
           type="submit"
@@ -111,54 +130,144 @@ function ChecklistPane(): React.JSX.Element {
         </motion.button>
       </form>
 
-      {today.checklist.length === 0 ? (
+      <div className="add-meta">
+        <div className="seg seg-sm" role="radiogroup" aria-label="Priority">
+          {([1, 2, 3] as Priority[]).map((p) => (
+            <button
+              key={p}
+              type="button"
+              className={priority === p ? `seg-btn active p${p}` : 'seg-btn'}
+              onClick={() => setPriority(p)}
+              role="radio"
+              aria-checked={priority === p}
+            >
+              {PRIORITY_LABELS[p]}
+            </button>
+          ))}
+        </div>
+        <input
+          className="field field-due"
+          type="date"
+          value={due}
+          onChange={(e) => setDue(e.target.value)}
+          aria-label="Due date (optional)"
+          title="Due date (optional)"
+        />
+      </div>
+
+      {open.length === 0 ? (
         <EmptyState
           icon={<CheckSquareIcon size={20} />}
-          title="Nothing on the list"
-          hint="Add the tasks you want to knock out today. Checking one off logs it to your journal."
+          title="Nothing left to do"
+          hint="Add anything — an assignment, a chore, a someday idea. Give it a time estimate and it gets scheduled into your free time automatically."
         />
       ) : (
         <motion.ul className="list" variants={listVariants} initial="hidden" animate="show">
           <AnimatePresence initial={false}>
-            {today.checklist.map((item) => (
-              <motion.li
-                key={item.id}
-                className="card"
-                layout
-                variants={itemVariants}
-                exit={{ opacity: 0, x: -18, transition: { duration: 0.15 } }}
-              >
-                <button
-                  className={item.done ? 'checkbox checked' : 'checkbox'}
-                  onClick={() => dispatch({ type: 'toggleChecklistItem', date, id: item.id })}
-                  aria-label={item.done ? `Uncheck ${item.text}` : `Check off ${item.text}`}
-                  aria-pressed={item.done}
+            {open.map((task) => {
+              const at = placedAt.get(task.id)
+              return (
+                <motion.li
+                  key={task.id}
+                  className="card"
+                  layout
+                  variants={itemVariants}
+                  exit={{ opacity: 0, x: -18, transition: { duration: 0.15 } }}
                 >
-                  {item.done && <CheckIcon size={13} />}
-                </button>
-                <span className={item.done ? 'check-text done' : 'check-text'}>
-                  {item.text}
-                  {item.source === 'recurring' && (
-                    <span className="chip chip-repeat" title="Added by a repeating task">
-                      <RepeatIcon size={8} />
-                      repeats
-                    </span>
-                  )}
-                </span>
-                {item.estimateMinutes !== null && (
-                  <span className="est mono">{formatMinutes(item.estimateMinutes)}</span>
-                )}
-                <button
-                  className="icon-btn danger"
-                  onClick={() => dispatch({ type: 'deleteChecklistItem', date, id: item.id })}
-                  aria-label={`Delete ${item.text}`}
-                >
-                  <TrashIcon size={14} />
-                </button>
-              </motion.li>
-            ))}
+                  <button
+                    className="checkbox"
+                    onClick={() => dispatch({ type: 'toggleBacklogTask', date, id: task.id })}
+                    aria-label={`Check off ${task.text}`}
+                    aria-pressed={false}
+                  />
+                  <div className="card-body">
+                    <p className="card-name">{task.text}</p>
+                    <div className="card-meta">
+                      <span className={`chip chip-p${task.priority}`}>
+                        {PRIORITY_LABELS[task.priority]}
+                      </span>
+                      {task.estimateMinutes !== null && (
+                        <span className="chip chip-est">{formatMinutes(task.estimateMinutes)}</span>
+                      )}
+                      {task.dueDate && (
+                        <span
+                          className={
+                            task.dueDate < todayKey() ? 'chip chip-overdue' : 'chip chip-due'
+                          }
+                        >
+                          {dueLabel(task.dueDate)}
+                        </span>
+                      )}
+                      {task.recurringTaskId && (
+                        <span className="chip chip-repeat">
+                          <RepeatIcon size={8} />
+                          repeats
+                        </span>
+                      )}
+                      {at ? (
+                        <span className="scheduled-at">
+                          {at.date === todayKey() ? 'today' : dueLabel(at.date)}{' '}
+                          {formatClock(at.start)}
+                        </span>
+                      ) : (
+                        task.estimateMinutes === null && (
+                          <span className="scheduled-at muted">add an estimate to schedule it</span>
+                        )
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    className="icon-btn danger"
+                    onClick={() => dispatch({ type: 'deleteBacklogTask', date, id: task.id })}
+                    aria-label={`Delete ${task.text}`}
+                  >
+                    <TrashIcon size={14} />
+                  </button>
+                </motion.li>
+              )
+            })}
           </AnimatePresence>
         </motion.ul>
+      )}
+
+      {done.length > 0 && (
+        <>
+          <button className="btn-ghost done-toggle" onClick={() => setShowDone((v) => !v)}>
+            <CheckIcon size={12} />
+            {showDone ? 'Hide' : 'Show'} {done.length} done
+          </button>
+          <AnimatePresence initial={false}>
+            {showDone && (
+              <motion.ul
+                className="list"
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+              >
+                {done.map((task) => (
+                  <li key={task.id} className="card">
+                    <button
+                      className="checkbox checked"
+                      onClick={() => dispatch({ type: 'toggleBacklogTask', date, id: task.id })}
+                      aria-label={`Uncheck ${task.text}`}
+                      aria-pressed
+                    >
+                      <CheckIcon size={13} />
+                    </button>
+                    <span className="check-text done">{task.text}</span>
+                    <button
+                      className="icon-btn danger"
+                      onClick={() => dispatch({ type: 'deleteBacklogTask', date, id: task.id })}
+                      aria-label={`Delete ${task.text}`}
+                    >
+                      <TrashIcon size={14} />
+                    </button>
+                  </li>
+                ))}
+              </motion.ul>
+            )}
+          </AnimatePresence>
+        </>
       )}
 
       <AnimatePresence>

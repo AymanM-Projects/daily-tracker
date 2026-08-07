@@ -76,6 +76,19 @@ DataContext (useReducer)  --IPC 'data:save'-->  store.ts  -->  daily-tracker-dat
 
 Daily data lives under `AppData.days['YYYY-MM-DD']` using the **local** date from `todayKey()`. There is no date library — all time arithmetic is integer minutes-since-midnight via `parseHM`/`formatHM` in `src/shared/time.ts`. `getDay()` (in `src/shared/defaults.ts`) returns an empty day shape for missing keys so panes never null-check. A 30-second interval in `DataContext` dispatches `setActiveDate` when the date rolls over.
 
+### The backlog and multi-day placement
+
+`AppData.backlog` is a standing, dateless list ordered by priority — it replaced the per-day checklist in v6. `src/shared/plan.ts` (`planBacklog`) distributes unfinished work into free time across a rolling horizon.
+
+- **It only ever writes into gaps.** Existing blocks are inputs, never outputs. That is what makes it safe to re-run on every add without violating the rule that nothing silently rewrites a day already underway.
+- **Idempotency comes from arithmetic, not bookkeeping.** A task's remaining work is its estimate minus the minutes already carrying its `backlogTaskId`. A second run finds nothing left, so `hydrate` re-running placement can never duplicate.
+- **Anchors are passed in, never computed there** — `DataContext.replan()` resolves prayer times per day, so `plan.ts` stays prayer-agnostic and testable without a clock. Same seam as `generateSchedule`.
+- Tasks with **no estimate are never placed**; they still list. Guessing at how much of a day to spend is worse than leaving it to the user.
+- A task is never scheduled past its own `dueDate`, and work that doesn't fit the horizon comes back as `unplaced` rather than being dropped.
+- Completing or deleting a task drops its **future** placements only; past blocks stay as history.
+
+`setSchedule` replaces a day wholesale, so `SchedulePane.generate()` dispatches `replan` straight after to re-place backlog work around the newly generated blocks.
+
 ### Recurring checklist tasks
 
 `AppData.recurringTasks` holds standing rules (daily / weekly-on-weekdays / monthly-on-day). `src/shared/recurrence.ts` is a pure function pair — `dueOn` and `pendingRules` — and is the only place recurrence logic belongs.

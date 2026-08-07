@@ -206,16 +206,74 @@ textarea {
   color: var(--text-muted);
 }
 
-.chip-repeat {
+.chip.chip-repeat {
   margin-left: 6px;
   color: var(--parallel);
   background: var(--parallel-dim);
 }
 
 /* durations are lowercase units — the default chip uppercasing turns 20m into 20M */
-.chip-est {
+.chip.chip-est {
   text-transform: none;
   font-family: var(--font-mono);
+}
+
+.chip.chip-due {
+  text-transform: none;
+  color: var(--text-secondary);
+}
+
+.chip.chip-overdue {
+  text-transform: none;
+  color: var(--danger);
+  background: var(--danger-dim);
+}
+
+/* ---------- Backlog ---------- */
+
+.add-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -2px 0 10px;
+}
+
+.seg-sm {
+  flex: 1;
+}
+
+.seg-sm .seg-btn {
+  padding: 5px 4px;
+  font-size: 11px;
+}
+
+.field-due {
+  flex: 0 0 128px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+
+/* where the planner actually put this task */
+.scheduled-at {
+  font-size: 10.5px;
+  font-family: var(--font-mono);
+  color: var(--accent);
+}
+
+.scheduled-at.muted {
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+}
+
+.done-toggle {
+  align-self: flex-start;
+  margin-top: 10px;
+}
+
+/* blocks the planner placed, as opposed to generated activities */
+.block.from-backlog {
+  border-left-style: double;
+  border-left-width: 4px;
 }
 
 /* ---------- Prayer times ---------- */

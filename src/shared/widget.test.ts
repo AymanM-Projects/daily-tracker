@@ -17,6 +17,7 @@ function block(over: Partial<ScheduleBlock> = {}): ScheduleBlock {
     kind: 'activity',
     lane: 'focus',
     activityId: 'a1',
+    backlogTaskId: null,
     name: 'Homework',
     start: '16:00',
     end: '17:00',
@@ -143,26 +144,28 @@ describe('buildWidgetSummary', () => {
     expect(buildWidgetSummary(data, at('16:45')).timer).toBeNull()
   })
 
-  it('counts the checklist', () => {
+  it('counts the whole backlog, not just today', () => {
     const data = withSchedule(null)
-    data.days[KEY].checklist = [
+    data.backlog = [
       {
         id: 'c1',
         text: 'a',
-        done: true,
-        createdAt: '',
-        completedAt: null,
+        priority: 2,
         estimateMinutes: null,
-        source: 'manual'
+        dueDate: KEY,
+        done: true,
+        completedAt: null,
+        createdAt: ''
       },
       {
         id: 'c2',
         text: 'b',
-        done: false,
-        createdAt: '',
-        completedAt: null,
+        priority: 2,
         estimateMinutes: null,
-        source: 'manual'
+        dueDate: null, // an undated "someday" task still counts
+        done: false,
+        completedAt: null,
+        createdAt: ''
       }
     ]
     expect(buildWidgetSummary(data, at('16:45')).checklist).toEqual({ done: 1, total: 2 })

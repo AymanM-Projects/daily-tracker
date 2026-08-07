@@ -63,7 +63,7 @@ export function getDay(data: AppData, date: DateKey): DayData {
 
 export function defaultAppData(): AppData {
   return {
-    version: 5,
+    version: 6,
     activeTimer: null,
     projects: [],
     activitySets: [defaultActivitySet()],

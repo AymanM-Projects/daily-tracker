@@ -71,6 +71,7 @@ function Lane({
           'block',
           isBreak ? 'break' : '',
           isAnchor ? 'anchor' : '',
+          block.backlogTaskId ? 'from-backlog' : '',
           block.lane === 'parallel' ? 'parallel' : '',
           block.overflow ? 'overflow' : '',
           current ? 'current' : '',
@@ -176,6 +177,10 @@ function SchedulePane(): React.JSX.Element {
       : []
     const result = generateSchedule(activities, settings, { anchors })
     dispatch({ type: 'setSchedule', date, blocks: result.blocks, unscheduled: result.unscheduled })
+    // setSchedule replaces the day wholesale, which drops any backlog work that
+    // had been placed in it — re-place it around the freshly generated blocks.
+    // Regenerating is an explicit action, so rebuilding the day here is expected.
+    dispatch({ type: 'replan', date })
   }
 
   const blocks = today.schedule ?? []

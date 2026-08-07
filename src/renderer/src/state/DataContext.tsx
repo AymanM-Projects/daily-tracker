@@ -12,8 +12,8 @@ import type {
   Activity,
   ActivityMode,
   AppData,
+  BacklogTask,
   BlockStatus,
-  ChecklistItem,
   DateKey,
   DayData,
   JournalEntry,
@@ -23,10 +23,13 @@ import type {
   ScheduleBlock,
   Settings
 } from '@shared/types'
+import type { Anchor } from '@shared/schedule'
 import { defaultAppData, getDay } from '@shared/defaults'
 import { elapsedMinutes } from '@shared/timer'
 import { pendingRules } from '@shared/recurrence'
-import { todayKey } from '@shared/time'
+import { PLAN_DEFAULTS, planBacklog } from '@shared/plan'
+import { prayerTimes } from '@shared/prayer'
+import { minutesNow, shiftDateKey, todayKey } from '@shared/time'
 
 export interface State {
   data: AppData
@@ -46,9 +49,18 @@ export type Action =
     }
   | { type: 'updateActivity'; activity: Activity }
   | { type: 'deleteActivity'; id: string }
-  | { type: 'addChecklistItem'; date: DateKey; text: string; estimateMinutes: number | null }
-  | { type: 'toggleChecklistItem'; date: DateKey; id: string }
-  | { type: 'deleteChecklistItem'; date: DateKey; id: string }
+  | {
+      type: 'addBacklogTask'
+      date: DateKey
+      text: string
+      estimateMinutes: number | null
+      priority: Priority
+      dueDate: DateKey | null
+    }
+  | { type: 'toggleBacklogTask'; date: DateKey; id: string }
+  | { type: 'updateBacklogTask'; date: DateKey; task: BacklogTask }
+  | { type: 'deleteBacklogTask'; date: DateKey; id: string }
+  | { type: 'replan'; date: DateKey }
   | {
       type: 'addRecurringTask'
       task: Omit<RecurringTask, 'id' | 'createdAt'>
@@ -140,23 +152,88 @@ function applyRecurring(data: AppData, date: DateKey): AppData {
   if (due.length === 0) return data
 
   const now = new Date().toISOString()
-  return withDay(data, date, (day) => ({
+  // rules now feed the standing backlog, due on the day they fire, rather than a
+  // per-day list. `recurringApplied` stays the idempotency record either way.
+  const created: BacklogTask[] = due.map((rule) => ({
+    id: crypto.randomUUID(),
+    text: rule.text,
+    priority: 2,
+    estimateMinutes: rule.estimateMinutes,
+    dueDate: date,
+    done: false,
+    completedAt: null,
+    createdAt: now,
+    recurringTaskId: rule.id
+  }))
+
+  return withDay({ ...data, backlog: [...data.backlog, ...created] }, date, (day) => ({
     ...day,
-    checklist: [
-      ...day.checklist,
-      ...due.map((rule) => ({
-        id: crypto.randomUUID(),
-        text: rule.text,
-        done: false,
-        createdAt: now,
-        completedAt: null,
-        estimateMinutes: rule.estimateMinutes,
-        source: 'recurring' as const,
-        recurringTaskId: rule.id
-      }))
-    ],
     recurringApplied: [...day.recurringApplied, ...due.map((r) => r.id)]
   }))
+}
+
+/**
+ * Re-run placement for everything still outstanding in the backlog.
+ *
+ * Additive by construction: `planBacklog` only ever returns blocks for free
+ * time, so calling this on every backlog change can never disturb work already
+ * scheduled or a day the user is partway through.
+ */
+function replan(data: AppData, from: DateKey): AppData {
+  const days: Record<DateKey, ScheduleBlock[]> = {}
+  for (const [date, day] of Object.entries(data.days)) {
+    if (day.schedule) days[date] = day.schedule
+  }
+
+  // prayer times are resolved here so shared/plan.ts stays prayer-agnostic
+  const anchorsByDate: Record<DateKey, Anchor[]> = {}
+  if (data.prayer.enabled) {
+    for (let i = 0; i < PLAN_DEFAULTS.horizonDays; i++) {
+      const date = shiftDateKey(from, i)
+      anchorsByDate[date] = prayerTimes(date, data.prayer)
+        .filter((t) => data.prayer.include.includes(t.name))
+        .map((t) => ({ name: t.name, start: t.minutes, end: t.minutes + data.prayer.blockMinutes }))
+    }
+  }
+
+  const { placements } = planBacklog({
+    backlog: data.backlog,
+    days,
+    anchorsByDate,
+    settings: data.settings,
+    fromDate: from,
+    fromMinute: minutesNow()
+  })
+
+  if (Object.keys(placements).length === 0) return data
+
+  const nextDays = { ...data.days }
+  for (const [date, blocks] of Object.entries(placements)) {
+    const day = getDay(data, date)
+    // a day that was never generated becomes a real schedule here — that is what
+    // lets work spill forward into days the user has not planned yet
+    nextDays[date] = { ...day, schedule: [...(day.schedule ?? []), ...blocks] }
+  }
+  return { ...data, days: nextDays }
+}
+
+/**
+ * Drop a task's *future* placements so the time frees up. Blocks already in the
+ * past stay: they are a record of what the day looked like, not a plan any more.
+ */
+function releaseTask(data: AppData, taskId: string, from: DateKey): AppData {
+  const nextDays: Record<DateKey, DayData> = {}
+  let changed = false
+  for (const [date, day] of Object.entries(data.days)) {
+    if (date < from || !day.schedule) {
+      nextDays[date] = day
+      continue
+    }
+    const kept = day.schedule.filter((b) => b.backlogTaskId !== taskId)
+    if (kept.length !== day.schedule.length) changed = true
+    nextDays[date] = { ...day, schedule: kept }
+  }
+  return changed ? { ...data, days: nextDays } : data
 }
 
 function reducer(state: State, action: Action): State {
@@ -208,65 +285,72 @@ function reducer(state: State, action: Action): State {
           activities: state.data.activities.filter((a) => a.id !== action.id)
         }
       }
-    case 'addChecklistItem': {
-      const item: ChecklistItem = {
+    case 'addBacklogTask': {
+      const task: BacklogTask = {
         id: crypto.randomUUID(),
         text: action.text,
-        done: false,
-        createdAt: new Date().toISOString(),
-        completedAt: null,
+        priority: action.priority,
         estimateMinutes: action.estimateMinutes,
-        source: 'manual'
+        dueDate: action.dueDate,
+        done: false,
+        completedAt: null,
+        createdAt: new Date().toISOString()
       }
+      // place it immediately — safe on every add because placement only fills gaps
       return {
         ...state,
-        data: withDay(state.data, action.date, (day) => ({
-          ...day,
-          checklist: [...day.checklist, item]
-        }))
+        data: replan({ ...state.data, backlog: [...state.data.backlog, task] }, action.date)
       }
     }
-    case 'toggleChecklistItem':
-      return {
-        ...state,
-        data: withDay(state.data, action.date, (day) => {
-          const item = day.checklist.find((i) => i.id === action.id)
-          if (!item) return day
-          const now = new Date().toISOString()
-          const toggled: ChecklistItem = {
-            ...item,
-            done: !item.done,
-            completedAt: item.done ? null : now
-          }
-          // the auto-journal rule: checking logs an entry, unchecking retracts it
-          const journal = toggled.done
-            ? [
-                ...day.journal,
-                {
-                  id: crypto.randomUUID(),
-                  kind: 'auto' as const,
-                  text: `Completed: ${item.text}`,
-                  timestamp: now,
-                  checklistItemId: item.id
-                }
-              ]
-            : day.journal.filter((e) => e.checklistItemId !== action.id)
-          return {
-            ...day,
-            checklist: day.checklist.map((i) => (i.id === action.id ? toggled : i)),
-            journal
-          }
-        })
-      }
-    case 'deleteChecklistItem':
+    case 'toggleBacklogTask': {
+      const task = state.data.backlog.find((t) => t.id === action.id)
+      if (!task) return state
+      const now = new Date().toISOString()
+      const done = !task.done
+
+      const backlog = state.data.backlog.map((t) =>
+        t.id === action.id ? { ...t, done, completedAt: done ? now : null } : t
+      )
+      // the auto-journal rule, unchanged: finishing logs it, un-finishing retracts it
+      const journal = done
+        ? [
+            ...getDay(state.data, action.date).journal,
+            {
+              id: crypto.randomUUID(),
+              kind: 'auto' as const,
+              text: `Completed: ${task.text}`,
+              timestamp: now,
+              checklistItemId: task.id
+            }
+          ]
+        : getDay(state.data, action.date).journal.filter((e) => e.checklistItemId !== action.id)
+
+      const withJournal = withDay({ ...state.data, backlog }, action.date, (day) => ({
+        ...day,
+        journal
+      }))
+      // finishing frees the time it was holding; un-finishing asks for it back
+      const released = releaseTask(withJournal, action.id, action.date)
+      return { ...state, data: done ? released : replan(released, action.date) }
+    }
+    case 'updateBacklogTask': {
+      const backlog = state.data.backlog.map((t) => (t.id === action.task.id ? action.task : t))
+      // the estimate or deadline may have moved, so drop its future slots and re-place
+      const released = releaseTask({ ...state.data, backlog }, action.task.id, action.date)
+      return { ...state, data: replan(released, action.date) }
+    }
+    case 'deleteBacklogTask':
       // journal entries are kept — completed work stays in history
       return {
         ...state,
-        data: withDay(state.data, action.date, (day) => ({
-          ...day,
-          checklist: day.checklist.filter((i) => i.id !== action.id)
-        }))
+        data: releaseTask(
+          { ...state.data, backlog: state.data.backlog.filter((t) => t.id !== action.id) },
+          action.id,
+          action.date
+        )
       }
+    case 'replan':
+      return { ...state, data: replan(state.data, action.date) }
     case 'addRecurringTask': {
       const task: RecurringTask = {
         ...action.task,
@@ -405,6 +489,7 @@ interface DataContextValue {
   today: DayData
   activities: Activity[]
   recurringTasks: RecurringTask[]
+  backlog: BacklogTask[]
   settings: Settings
   prayer: PrayerSettings
 }
@@ -455,6 +540,7 @@ export function DataProvider({ children }: { children: ReactNode }): React.JSX.E
       today: getDay(state.data, state.activeDate),
       activities: state.data.activities,
       recurringTasks: state.data.recurringTasks,
+      backlog: state.data.backlog,
       settings: state.data.settings,
       prayer: state.data.prayer
     }),

@@ -90,8 +90,10 @@ export interface ScheduleBlock {
   /** 'anchor' is a fixed-time obligation (a prayer) that activities route around */
   kind: 'activity' | 'break' | 'anchor'
   lane: ScheduleLane
-  activityId: string | null // null for breaks
-  name: string // snapshot of activity name at generation time
+  activityId: string | null // null for breaks, anchors and backlog work
+  /** set when this block is placed work from the backlog rather than a generated activity */
+  backlogTaskId: string | null
+  name: string // snapshot of the name at generation time
   start: string // 'HH:mm'
   end: string // 'HH:mm'
   overflow: boolean // true if the block runs past settings.dayEnd
@@ -234,7 +236,7 @@ export interface BacklogTask {
 }
 
 export interface AppData {
-  version: 5
+  version: 6
   activeTimer: ActiveTimer | null
   projects: Project[]
   activitySets: ActivitySet[]

@@ -94,7 +94,9 @@ describe('migrate v1 -> current', () => {
     const day = out.days['2026-08-06']
     expect(out.activities[0].name).toBe('Deep work')
     expect(out.activities[0].durationMinutes).toBe(90)
-    expect(day.checklist[0].text).toBe('Ship it')
+    // v6 moved the per-day checklist into the standing backlog
+    expect(out.backlog[0].text).toBe('Ship it')
+    expect(out.backlog[0].dueDate).toBe('2026-08-06')
     expect(day.journal[0].checklistItemId).toBe('chk-1')
     expect(day.schedule?.[0].start).toBe('16:00')
     expect(out.settings.alwaysOnTop).toBe(true)
@@ -165,39 +167,98 @@ describe('migrate v3 -> v4', () => {
     }
   }
 
-  it('adds recurring rules and stamps existing checklist items as manual', () => {
+  it('adds recurring rules and carries checklist items through to the backlog', () => {
     const out = migrate(v3Fixture())
     expect(out.version).toBe(CURRENT_VERSION)
     expect(out.recurringTasks).toEqual([])
+    expect(out.days['2026-08-06'].recurringApplied).toEqual([])
 
-    const day = out.days['2026-08-06']
-    expect(day.recurringApplied).toEqual([])
-    // existing items must be explicitly 'manual', or reconciliation would treat
-    // every one of them as machine-generated and reap it
-    expect(day.checklist.map((i) => i.source)).toEqual(['manual', 'manual'])
-    expect(day.checklist.map((i) => i.estimateMinutes)).toEqual([null, null])
+    // v4 stamped these onto the checklist; v6 then moved them into the backlog,
+    // so the end state of the chain is where the assertion belongs
+    expect(out.backlog.map((t) => t.estimateMinutes)).toEqual([null, null])
+    expect(out.backlog.every((t) => t.dueDate === '2026-08-06')).toBe(true)
+    expect(out.days['2026-08-06'].checklist).toEqual([])
   })
 
   it('loses nothing it does not understand', () => {
     const out = migrate(v3Fixture())
-    const day = out.days['2026-08-06']
-    expect(day.checklist[0].text).toBe('Ship it')
-    expect(day.checklist[0].done).toBe(true)
-    expect(day.checklist[0].completedAt).toBe('y')
-    expect(day.checklist[1].done).toBe(false)
-    expect(day.journal[0].text).toBe('note')
+    expect(out.backlog[0].text).toBe('Ship it')
+    expect(out.backlog[0].done).toBe(true)
+    expect(out.backlog[0].completedAt).toBe('y')
+    expect(out.backlog[1].done).toBe(false)
+    expect(out.days['2026-08-06'].journal[0].text).toBe('note')
   })
 
   it('does not re-stamp values a newer document already has', () => {
     const doc = v3Fixture()
     const days = doc.days as Record<string, Record<string, unknown>>
     const checklist = days['2026-08-06'].checklist as Record<string, unknown>[]
-    checklist[0].source = 'recurring'
     checklist[0].estimateMinutes = 25
 
-    const day = migrate(doc).days['2026-08-06']
-    expect(day.checklist[0].source).toBe('recurring')
-    expect(day.checklist[0].estimateMinutes).toBe(25)
+    // the estimate set on the v3 document survives all the way into the backlog
+    expect(migrate(doc).backlog[0].estimateMinutes).toBe(25)
+  })
+
+  it('moves items from several days into one backlog, each keeping its date', () => {
+    const out = migrate({
+      version: 5,
+      days: {
+        '2026-08-05': {
+          checklist: [{ id: 'a', text: 'Yesterday', done: false, estimateMinutes: 30 }],
+          journal: [],
+          schedule: null,
+          unscheduled: null
+        },
+        '2026-08-06': {
+          checklist: [{ id: 'b', text: 'Today', done: false, estimateMinutes: null }],
+          journal: [],
+          schedule: null,
+          unscheduled: null
+        }
+      }
+    })
+    expect(out.backlog.map((t) => `${t.text}@${t.dueDate}`)).toEqual([
+      'Yesterday@2026-08-05',
+      'Today@2026-08-06'
+    ])
+    // per-day lists are emptied, not deleted — the field still exists
+    expect(out.days['2026-08-05'].checklist).toEqual([])
+    expect(out.backlog.every((t) => t.priority === 2)).toBe(true)
+  })
+
+  it('stamps backlogTaskId onto existing schedule blocks', () => {
+    const out = migrate({
+      version: 5,
+      days: {
+        '2026-08-06': {
+          checklist: [],
+          journal: [],
+          schedule: [
+            { id: 'b1', kind: 'activity', name: 'Deep work', start: '09:00', end: '10:00' }
+          ],
+          unscheduled: null
+        }
+      }
+    })
+    expect(out.days['2026-08-06'].schedule?.[0].backlogTaskId).toBeNull()
+    expect(out.days['2026-08-06'].schedule?.[0].name).toBe('Deep work')
+  })
+
+  it('keeps a recurring link when moving an item across', () => {
+    const out = migrate({
+      version: 5,
+      days: {
+        '2026-08-06': {
+          checklist: [
+            { id: 'r', text: 'Bins', done: false, estimateMinutes: 10, recurringTaskId: 'rule-1' }
+          ],
+          journal: [],
+          schedule: null,
+          unscheduled: null
+        }
+      }
+    })
+    expect(out.backlog[0].recurringTaskId).toBe('rule-1')
   })
 
   it('survives a day with no checklist array at all', () => {
