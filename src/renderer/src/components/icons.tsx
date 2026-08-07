@@ -39,6 +39,26 @@ export function MoonIcon(props: IconProps): React.JSX.Element {
   )
 }
 
+export function SunIcon(props: IconProps): React.JSX.Element {
+  return (
+    <Svg {...props}>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+    </Svg>
+  )
+}
+
+/** Routines — a fixed part of the day, distinct from the moon used for prayer. */
+export function SunriseIcon(props: IconProps): React.JSX.Element {
+  return (
+    <Svg {...props}>
+      <path d="M12 3v4M5.6 8.6l1.4 1.4M2 15h2M20 15h2M17 10l1.4-1.4" />
+      <path d="M8 15a4 4 0 0 1 8 0" />
+      <path d="M3 19h18" />
+    </Svg>
+  )
+}
+
 export function RepeatIcon(props: IconProps): React.JSX.Element {
   return (
     <Svg {...props}>

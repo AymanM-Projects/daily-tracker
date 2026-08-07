@@ -1,20 +1,23 @@
 import { useEffect, useState } from 'react'
-import { motion } from 'motion/react'
+import { AnimatePresence, motion } from 'motion/react'
 import type { AiStatus, ThemeChoice } from '@shared/types'
 import { PRAYER_METHODS, prayerTimes } from '@shared/prayer'
 import { formatClockMinutes, todayKey } from '@shared/time'
 import { useData } from '../state/DataContext'
-import { CheckIcon, MoonIcon, SparklesIcon, TrashIcon } from '../components/icons'
+import RoutineSheet from '../components/RoutineSheet'
+import { CheckIcon, MoonIcon, SparklesIcon, SunriseIcon, TrashIcon } from '../components/icons'
 
 type TestState =
   { kind: 'idle' } | { kind: 'testing' } | { kind: 'ok' } | { kind: 'error'; message: string }
 
 function SettingsPane(): React.JSX.Element {
-  const { settings, prayer, dispatch } = useData()
+  const { settings, prayer, routines, dispatch } = useData()
   const [status, setStatus] = useState<AiStatus | null>(null)
   const [draftKey, setDraftKey] = useState('')
   const [reveal, setReveal] = useState(false)
   const [test, setTest] = useState<TestState>({ kind: 'idle' })
+  const [showRoutines, setShowRoutines] = useState(false)
+  const activeRoutines = routines.filter((r) => r.active).length
 
   useEffect(() => {
     void window.api.aiStatus().then(setStatus)
@@ -168,6 +171,31 @@ function SettingsPane(): React.JSX.Element {
           </div>
         </div>
       </div>
+
+      <h2 className="pane-title">
+        <SunriseIcon size={12} />
+        Routines
+      </h2>
+      <div className="setting-card">
+        <div className="setting-row">
+          <span className="setting-label">
+            Wake, lunch, dinner
+            <span className="setting-hint">
+              {activeRoutines === 0
+                ? 'None yet — the day is scheduled straight through'
+                : `${activeRoutines} worked into the day`}
+            </span>
+          </span>
+          <button className="btn-ghost" onClick={() => setShowRoutines(true)}>
+            <SunriseIcon size={13} />
+            Manage
+          </button>
+        </div>
+      </div>
+
+      <AnimatePresence>
+        {showRoutines && <RoutineSheet onClose={() => setShowRoutines(false)} />}
+      </AnimatePresence>
 
       <h2 className="pane-title">
         <MoonIcon size={12} />

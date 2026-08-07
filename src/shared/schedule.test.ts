@@ -24,6 +24,7 @@ function activity(over: Partial<Activity> = {}): Activity {
     durationMinutes: 60,
     priority: 2,
     mode: 'focus',
+    dueDate: null,
     projectId: null,
     createdAt: '2026-08-01T00:00:00.000Z',
     ...over

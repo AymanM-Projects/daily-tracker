@@ -3,7 +3,7 @@ import { useData } from '../state/DataContext'
 import { useTimer } from '../hooks/useTimer'
 import { formatDuration } from '@shared/timer'
 import { formatDateLabel } from '@shared/time'
-import { CheckIcon, PauseIcon, PinIcon, PlayIcon, XIcon } from './icons'
+import { CheckIcon, MoonIcon, PauseIcon, PinIcon, PlayIcon, SunIcon, XIcon } from './icons'
 
 function TitleBar(): React.JSX.Element {
   const { state, settings, dispatch } = useData()
@@ -15,6 +15,18 @@ function TitleBar(): React.JSX.Element {
     const next = !pinned
     dispatch({ type: 'updateSettings', patch: { alwaysOnTop: next } })
     void window.api.setAlwaysOnTop(next)
+  }
+
+  // Resolve 'system' to what is actually on screen before flipping it. Toggling
+  // the stored value alone would make the first press from 'system' a no-op
+  // whenever the OS already matched — the button has to do what its icon says.
+  const isDark =
+    settings.theme === 'system'
+      ? !window.matchMedia('(prefers-color-scheme: light)').matches
+      : settings.theme === 'dark'
+
+  const toggleTheme = (): void => {
+    dispatch({ type: 'updateSettings', patch: { theme: isDark ? 'light' : 'dark' } })
   }
 
   return (
@@ -119,6 +131,28 @@ function TitleBar(): React.JSX.Element {
           <PauseIcon size={15} />
         </motion.button>
       )}
+      <motion.button
+        className="pin-btn"
+        onClick={toggleTheme}
+        whileHover={{ scale: 1.08 }}
+        whileTap={{ scale: 0.92 }}
+        transition={{ type: 'spring', stiffness: 500, damping: 25 }}
+        aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+        title={isDark ? 'Light mode' : 'Dark mode'}
+      >
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.span
+            key={isDark ? 'sun' : 'moon'}
+            className="theme-icon"
+            initial={{ opacity: 0, rotate: -60 }}
+            animate={{ opacity: 1, rotate: 0 }}
+            exit={{ opacity: 0, rotate: 60 }}
+            transition={{ duration: 0.16 }}
+          >
+            {isDark ? <SunIcon size={15} /> : <MoonIcon size={15} />}
+          </motion.span>
+        </AnimatePresence>
+      </motion.button>
       <motion.button
         className={pinned ? 'pin-btn active' : 'pin-btn'}
         onClick={togglePin}

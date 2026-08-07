@@ -83,8 +83,28 @@ export function formatMinutes(minutes: number): string {
   return m === 0 ? `${h}h` : `${h}h ${m}m`
 }
 
-/** ISO timestamp -> local 'HH:mm' */
+/**
+ * ISO timestamp -> local '1:00 PM'.
+ *
+ * Display, so it goes through `formatClockMinutes` like every other rendered
+ * time. It used to reach for `formatHM` and print 24-hour, which is the one rule
+ * this pair exists to enforce.
+ */
 export function formatTimestamp(iso: string): string {
   const d = new Date(iso)
-  return formatHM(d.getHours() * 60 + d.getMinutes())
+  return formatClockMinutes(d.getHours() * 60 + d.getMinutes())
+}
+
+/**
+ * Whole days from `from` to `to`, negative when `to` is already past.
+ *
+ * Built on local midnights rather than raw millisecond subtraction, so a DST
+ * boundary between the two dates cannot round a day away.
+ */
+export function daysUntil(from: DateKey, to: DateKey): number {
+  const [fy, fm, fd] = from.split('-').map(Number)
+  const [ty, tm, td] = to.split('-').map(Number)
+  const a = new Date(fy, fm - 1, fd).setHours(0, 0, 0, 0)
+  const b = new Date(ty, tm - 1, td).setHours(0, 0, 0, 0)
+  return Math.round((b - a) / 86400000)
 }

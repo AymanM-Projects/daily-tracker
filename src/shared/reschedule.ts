@@ -338,6 +338,7 @@ export function insertBlock(
     lane: draft.lane,
     activityId: draft.activityId ?? null,
     backlogTaskId: null,
+    anchorSource: null,
     name: draft.name,
     start: formatHM(draft.start),
     end: formatHM(draft.end),

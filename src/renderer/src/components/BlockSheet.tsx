@@ -6,6 +6,7 @@ import { editBlock, removeBlock, type EditFailure } from '@shared/reschedule'
 import { useData } from '../state/DataContext'
 import { useTimer } from '../hooks/useTimer'
 import Sheet from './Sheet'
+import TimeField from './TimeField'
 import { CheckIcon, ChevronRightIcon, PauseIcon, PlayIcon, SkipIcon, TrashIcon } from './icons'
 
 interface BlockSheetProps {
@@ -236,27 +237,15 @@ function BlockSheet({ block, date, onClose }: BlockSheetProps): React.JSX.Elemen
           )}
 
           <div className="sheet-row">
-            <label className="time-label">
+            <span className="time-label">
               Start
-              <input
-                className="field field-time"
-                type="time"
-                step={300}
-                value={start}
-                onChange={(e) => setStart(e.target.value)}
-              />
-            </label>
+              <TimeField value={start} onChange={setStart} label="Block start" />
+            </span>
             <span className="range-dash">–</span>
-            <label className="time-label">
+            <span className="time-label">
               End
-              <input
-                className="field field-time"
-                type="time"
-                step={300}
-                value={end}
-                onChange={(e) => setEnd(e.target.value)}
-              />
-            </label>
+              <TimeField value={end} onChange={setEnd} label="Block end" />
+            </span>
           </div>
 
           {error && (

@@ -30,6 +30,7 @@ function block(over: Partial<ScheduleBlock> = {}): ScheduleBlock {
     lane: 'focus',
     activityId: 'a1',
     backlogTaskId: null,
+    anchorSource: null,
     name: 'Work',
     start: '09:00',
     end: '10:00',

@@ -18,6 +18,7 @@ function block(over: Partial<ScheduleBlock> = {}): ScheduleBlock {
     lane: 'focus',
     activityId: 'a1',
     backlogTaskId: null,
+    anchorSource: null,
     name: 'Homework',
     start: '16:00',
     end: '17:00',
@@ -39,7 +40,8 @@ function withSchedule(blocks: ScheduleBlock[] | null): AppData {
     schedule: blocks,
     unscheduled: null,
     activitySetId: null,
-    recurringApplied: []
+    recurringApplied: [],
+    carriedForward: false
   }
   return data
 }

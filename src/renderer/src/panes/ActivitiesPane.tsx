@@ -1,8 +1,11 @@
 import { useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import type { ActivityMode, Priority } from '@shared/types'
+import type { ActivityMode, DateKey, Priority } from '@shared/types'
+import { effectivePriority, priorityLabel } from '@shared/priority'
+import { formatDateLabel, todayKey } from '@shared/time'
 import { useData } from '../state/DataContext'
 import EmptyState from '../components/EmptyState'
+import UrgencyField from '../components/UrgencyField'
 import {
   ListIcon,
   PencilIcon,
@@ -12,8 +15,6 @@ import {
   XIcon,
   ZapIcon
 } from '../components/icons'
-
-const PRIORITY_LABELS: Record<Priority, string> = { 1: 'High', 2: 'Medium', 3: 'Low' }
 
 const listVariants = {
   hidden: {},
@@ -30,8 +31,10 @@ function ActivitiesPane(): React.JSX.Element {
   const [name, setName] = useState('')
   const [duration, setDuration] = useState('30')
   const [priority, setPriority] = useState<Priority>(2)
+  const [dueDate, setDueDate] = useState<DateKey | null>(null)
   const [mode, setMode] = useState<ActivityMode>('focus')
   const [editingId, setEditingId] = useState<string | null>(null)
+  const today = todayKey()
 
   const durationNum = Number.parseInt(duration, 10)
   const valid = name.trim().length > 0 && Number.isFinite(durationNum) && durationNum >= 5
@@ -40,6 +43,7 @@ function ActivitiesPane(): React.JSX.Element {
     setName('')
     setDuration('30')
     setPriority(2)
+    setDueDate(null)
     setMode('focus')
     setEditingId(null)
   }
@@ -58,12 +62,20 @@ function ActivitiesPane(): React.JSX.Element {
             name: trimmed,
             durationMinutes: durationNum,
             priority,
+            dueDate,
             mode
           }
         })
       }
     } else {
-      dispatch({ type: 'addActivity', name: trimmed, durationMinutes: durationNum, priority, mode })
+      dispatch({
+        type: 'addActivity',
+        name: trimmed,
+        durationMinutes: durationNum,
+        priority,
+        dueDate,
+        mode
+      })
     }
     resetForm()
   }
@@ -75,6 +87,7 @@ function ActivitiesPane(): React.JSX.Element {
     setName(activity.name)
     setDuration(String(activity.durationMinutes))
     setPriority(activity.priority)
+    setDueDate(activity.dueDate)
     setMode(activity.mode)
   }
 
@@ -105,23 +118,15 @@ function ActivitiesPane(): React.JSX.Element {
             title="Duration (minutes)"
           />
         </div>
-        <div>
-          <span className="seg-label">Priority</span>
-          <div className="seg" role="radiogroup" aria-label="Priority">
-            {([1, 2, 3] as Priority[]).map((p) => (
-              <button
-                key={p}
-                type="button"
-                className={priority === p ? `seg-btn active p${p}` : 'seg-btn'}
-                onClick={() => setPriority(p)}
-                role="radio"
-                aria-checked={priority === p}
-              >
-                {PRIORITY_LABELS[p]}
-              </button>
-            ))}
-          </div>
-        </div>
+        <UrgencyField
+          priority={priority}
+          dueDate={dueDate}
+          today={today}
+          onChange={(next) => {
+            setPriority(next.priority)
+            setDueDate(next.dueDate)
+          }}
+        />
         <div>
           <span className="seg-label">Mode</span>
           <div className="seg" role="radiogroup" aria-label="Mode">
@@ -193,9 +198,20 @@ function ActivitiesPane(): React.JSX.Element {
                   <p className="card-name">{activity.name}</p>
                   <div className="card-meta">
                     <span className="mono">{activity.durationMinutes} min</span>
-                    <span className={`chip chip-p${activity.priority}`}>
-                      {PRIORITY_LABELS[activity.priority]}
+                    {/* the level actually used for scheduling, so a deadline's
+                        effect is visible rather than implied */}
+                    <span className={`chip chip-p${effectivePriority(activity, today)}`}>
+                      {priorityLabel(effectivePriority(activity, today))}
                     </span>
+                    {activity.dueDate !== null && (
+                      <span
+                        className={
+                          activity.dueDate < today ? 'chip chip-due chip-overdue' : 'chip chip-due'
+                        }
+                      >
+                        {formatDateLabel(activity.dueDate)}
+                      </span>
+                    )}
                     {activity.mode === 'background' && (
                       <span className="chip chip-parallel">
                         <ZapIcon size={9} />

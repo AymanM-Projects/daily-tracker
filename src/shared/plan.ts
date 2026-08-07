@@ -1,6 +1,7 @@
 import type { BacklogTask, DateKey, ScheduleBlock, Settings } from './types'
 import type { Anchor } from './schedule'
 import { blockMinutes, blockSpan, freeIntervals, type Interval } from './blocks'
+import { effectivePriority } from './priority'
 import { formatHM, parseHM, shiftDateKey } from './time'
 
 export const PLAN_DEFAULTS = {
@@ -33,11 +34,16 @@ export interface PlanResult {
 /**
  * Priority outranks the deadline: an urgent task with no due date should still
  * beat a low-priority one due next week.
+ *
+ * The priority is the EFFECTIVE one, so a dated task's level is derived from how
+ * close its deadline is rather than from whatever was set by hand. The date
+ * comparison below still decides ties within a level — two tasks both due this
+ * week are both High, and the earlier one goes first.
  */
-function sortForPlanning(tasks: BacklogTask[]): BacklogTask[] {
+function sortForPlanning(tasks: BacklogTask[], today: DateKey): BacklogTask[] {
   return [...tasks].sort(
     (a, b) =>
-      a.priority - b.priority ||
+      effectivePriority(a, today) - effectivePriority(b, today) ||
       (a.dueDate ?? '9999-12-31').localeCompare(b.dueDate ?? '9999-12-31') ||
       a.createdAt.localeCompare(b.createdAt)
   )
@@ -62,6 +68,9 @@ export function planBacklog(input: PlanInput): PlanResult {
 
   // minutes already committed per task, across every day we know about
   const placedByTask = new Map<string, number>()
+  // and how many pieces those minutes are spread over, which is what the
+  // "Part 2 of 3" numbering counts
+  const partsByTask = new Map<string, number>()
   for (const blocks of Object.values(input.days)) {
     for (const b of blocks) {
       // a skipped block bought no time. Counting it would silently shrink the
@@ -69,13 +78,15 @@ export function planBacklog(input: PlanInput): PlanResult {
       // something would quietly delete it instead of deferring it.
       if (!b.backlogTaskId || b.status === 'skipped') continue
       placedByTask.set(b.backlogTaskId, (placedByTask.get(b.backlogTaskId) ?? 0) + blockMinutes(b))
+      partsByTask.set(b.backlogTaskId, (partsByTask.get(b.backlogTaskId) ?? 0) + 1)
     }
   }
 
   // tasks with no estimate are never placed — the app would be guessing at how
   // much of your day to spend, which is worse than leaving them on the list
   const pending = sortForPlanning(
-    input.backlog.filter((t) => !t.done && t.estimateMinutes !== null && t.estimateMinutes > 0)
+    input.backlog.filter((t) => !t.done && t.estimateMinutes !== null && t.estimateMinutes > 0),
+    input.fromDate
   ).map((task) => ({
     task,
     remaining: Math.max(0, (task.estimateMinutes ?? 0) - (placedByTask.get(task.id) ?? 0))
@@ -128,15 +139,17 @@ export function planBacklog(input: PlanInput): PlanResult {
       )
     }
 
-    // a task already partly placed counts as one earlier piece, so the numbering
-    // a user sees stays honest across repeated runs
-    const priorParts = (placedByTask.get(entry.task.id) ?? 0) > 0 ? 1 : 0
+    // Count the pieces that already exist, not merely whether any do. Treating
+    // "some minutes are placed" as exactly one earlier part numbered the fourth
+    // piece of a task as its second, so the labels drifted every time placement
+    // re-ran.
+    const priorParts = partsByTask.get(entry.task.id) ?? 0
     const totalParts = parts.length + priorParts
 
     parts.forEach((part, index) => {
       const name =
         totalParts > 1
-          ? `${entry.task.text} (${index + 1 + priorParts} of ${totalParts})`
+          ? `${entry.task.text} (Part ${index + 1 + priorParts} of ${totalParts})`
           : entry.task.text
       const block: ScheduleBlock = {
         id: crypto.randomUUID(),
@@ -144,6 +157,7 @@ export function planBacklog(input: PlanInput): PlanResult {
         lane: 'focus',
         activityId: null,
         backlogTaskId: entry.task.id,
+        anchorSource: null,
         name,
         start: formatHM(part.start),
         end: formatHM(part.start + part.length),

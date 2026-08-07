@@ -43,6 +43,7 @@ function block(over: Partial<ScheduleBlock> = {}): ScheduleBlock {
     lane: 'focus',
     activityId: 'a1',
     backlogTaskId: null,
+    anchorSource: null,
     name: 'Existing',
     start: '09:00',
     end: '10:00',
@@ -105,8 +106,8 @@ describe('planBacklog only fills gaps', () => {
       anchorsByDate: { [DAY1]: [{ name: 'Dhuhr', start: 9 * 60 + 30, end: 9 * 60 + 50 }] }
     })
     expect(lines(r)).toEqual([
-      `${DAY1} 09:00-09:30 Essay (1 of 2)`,
-      `${DAY1} 09:50-11:20 Essay (2 of 2)`
+      `${DAY1} 09:00-09:30 Essay (Part 1 of 2)`,
+      `${DAY1} 09:50-11:20 Essay (Part 2 of 2)`
     ])
   })
 
@@ -119,8 +120,8 @@ describe('planBacklog only fills gaps', () => {
     // 8h window, now 16:00 -> one hour left today, the rest spills to tomorrow
     const r = run({ backlog: [task({ estimateMinutes: 180 })], fromMinute: 16 * 60 })
     expect(lines(r)).toEqual([
-      `${DAY1} 16:00-17:00 Essay (1 of 2)`,
-      `${DAY2} 09:00-11:00 Essay (2 of 2)`
+      `${DAY1} 16:00-17:00 Essay (Part 1 of 2)`,
+      `${DAY2} 09:00-11:00 Essay (Part 2 of 2)`
     ])
   })
 })
@@ -130,9 +131,9 @@ describe('planBacklog splitting', () => {
     // 8h/day window, 20h of work -> 8 + 8 + 4
     const r = run({ backlog: [task({ text: 'Big', estimateMinutes: 20 * 60 })] })
     expect(lines(r)).toEqual([
-      `${DAY1} 09:00-17:00 Big (1 of 3)`,
-      `${DAY2} 09:00-17:00 Big (2 of 3)`,
-      `${DAY3} 09:00-13:00 Big (3 of 3)`
+      `${DAY1} 09:00-17:00 Big (Part 1 of 3)`,
+      `${DAY2} 09:00-17:00 Big (Part 2 of 3)`,
+      `${DAY3} 09:00-13:00 Big (Part 3 of 3)`
     ])
   })
 

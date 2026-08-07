@@ -12,6 +12,12 @@ export interface Activity {
   durationMinutes: number
   priority: Priority
   mode: ActivityMode
+  /**
+   * When this needs to be finished by. A deadline OVERRIDES `priority` — see
+   * `effectivePriority` in shared/priority.ts, which derives the level from how
+   * close the date is. null means the manual `priority` above is the real one.
+   */
+  dueDate: DateKey | null
   projectId: string | null // null = not tied to any project
   createdAt: string // ISO, sort tiebreaker
 }
@@ -72,6 +78,26 @@ export interface RecurringTask {
   createdAt: string // ISO
 }
 
+/**
+ * A standing part of the day that happens at a fixed time — waking, lunch,
+ * dinner. Resolved into an `Anchor` per day exactly like a prayer, so the
+ * generator routes focus work around it without knowing what it is.
+ *
+ * Routines block the FOCUS lane only, for the same reason prayers do: eating
+ * lunch does not stop a 3D print, and blocking the parallel lane would also
+ * tell `planBacklog` the whole day is occupied.
+ */
+export interface Routine {
+  id: string
+  name: string
+  start: string // 'HH:mm'
+  durationMinutes: number
+  /** which days it applies to, 0 = Sunday. Empty means every day. */
+  weekdays: number[]
+  active: boolean
+  createdAt: string // ISO
+}
+
 export interface JournalEntry {
   id: string
   kind: 'auto' | 'manual'
@@ -97,6 +123,9 @@ export type BlockKind = 'activity' | 'break' | 'anchor' | 'free'
  */
 export type BlockStatus = 'planned' | 'done' | 'skipped' | 'partial'
 
+/** What produced an anchor. Display only — the generator treats every anchor alike. */
+export type AnchorSource = 'prayer' | 'routine'
+
 export interface ScheduleBlock {
   id: string
   kind: BlockKind
@@ -104,6 +133,12 @@ export interface ScheduleBlock {
   activityId: string | null // null for breaks, anchors, free time and backlog work
   /** set when this block is placed work from the backlog rather than a generated activity */
   backlogTaskId: string | null
+  /**
+   * Where an anchor came from, copied through from `Anchor.source`. null on
+   * every other kind. Purely a display label — `schedule.ts` treats all anchors
+   * identically and stays ignorant of what they represent.
+   */
+  anchorSource: AnchorSource | null
   name: string // snapshot of the name at generation time
   start: string // 'HH:mm'
   end: string // 'HH:mm'
@@ -220,6 +255,17 @@ export interface DayData {
    * the next launch — saying "not today" has to stick.
    */
   recurringApplied: string[]
+  /**
+   * True once this day has been swept for unfinished work (see shared/carry.ts).
+   * Per-day rather than a global marker for the same reason as
+   * `recurringApplied`: a task the user deleted after it was carried must stay
+   * deleted, not reappear on the next launch.
+   *
+   * Days that already existed when v9 landed are marked true by the migration —
+   * sweeping months of history on first launch would bury the backlog in work
+   * the user has long since moved past.
+   */
+  carriedForward: boolean
 }
 
 /**
@@ -302,16 +348,23 @@ export interface BacklogTask {
   completedAt: string | null
   createdAt: string
   recurringTaskId?: string
+  /**
+   * The schedule block this was carried forward from, when it came out of an
+   * unfinished day rather than being typed in. Purely an idempotency key — it
+   * stops the same block being harvested twice if a day is ever re-swept.
+   */
+  carriedFromBlockId?: string
 }
 
 export interface AppData {
-  version: 8
+  version: 9
   activeTimer: ActiveTimer | null
   dayPause: DayPause | null
   projects: Project[]
   activitySets: ActivitySet[]
   activities: Activity[]
   recurringTasks: RecurringTask[]
+  routines: Routine[]
   backlog: BacklogTask[]
   prayer: PrayerSettings
   /** Fallback day window, used when no activity set is active. Kept for compatibility. */

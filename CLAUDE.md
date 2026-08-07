@@ -99,13 +99,38 @@ Nothing consumes the key yet: this is storage only, and the app is fully usable 
 
 ### Schema versions and migration
 
-`AppData.version` is currently **7**. `src/shared/migrate.ts` is a chain of one-way `vNToVN+1` pure functions, applied in sequence by `migrate()`, so a document several versions behind walks through each step in turn. Never edit an old migration to add a new field — write the next one.
+`AppData.version` is currently **9**. `src/shared/migrate.ts` is a chain of one-way `vNToVN+1` pure functions, applied in sequence by `migrate()`, so a document several versions behind walks through each step in turn. Never edit an old migration to add a new field — write the next one.
 
 Changing the schema means bumping the version in **three** places that must agree: `CURRENT_VERSION` in `migrate.ts`, the literal on `AppData` in `types.ts`, and the default in `defaults.ts`. Miss one and the app either re-migrates every launch or quarantines its own file.
 
 `store.ts` guards the file on load: a parse failure or a version _newer_ than `CURRENT_VERSION` renames the file aside (`*.corrupt-<epoch>.json`, `*.newer-v<n>-<epoch>.json`) rather than discarding it, and an older version is copied to `*.pre-v<n>-<epoch>.json` before migrating. Those backups accumulate in `~/Library/Application Support/daily-tracker/` and are never cleaned up.
 
-**A migration must not invent history.** `v6ToV7` deliberately creates no free blocks on already-generated days — a day keeps the exact shape the user last saw until they press Regenerate.
+**A migration must not invent history.** `v6ToV7` deliberately creates no free blocks on already-generated days — a day keeps the exact shape the user last saw until they press Regenerate. `v8ToV9` follows the same rule from the other direction: it stamps `carriedForward: true` on every day that already exists, because the carry-forward sweep turns unfinished blocks into backlog work and defaulting these to false would harvest months of history on the first launch after the upgrade.
+
+### Deadlines and derived priority
+
+`src/shared/priority.ts` is the only place urgency is decided. `Activity` and `BacklogTask` both carry an optional `dueDate`, and **a deadline overrides the hand-set `priority`** — `effectivePriority(item, today)` returns the derived level whenever `dueDate` is non-null.
+
+- **Derived at read time, never stored.** That is what lets a task escalate on its own as its date approaches without anything rewriting the document. Both `sortForSchedule` and `sortForPlanning` call it; `GenerateOptions.today` and `PlanInput.fromDate` supply the date, keeping both modules clock-free.
+- The ladder is deliberately coarse and distance-only (High ≤1 day, Medium ≤4, else Low). Estimates are optional and often wrong; a priority the user can predict beats one that is merely clever.
+- `UrgencyField` presents Priority and Deadline as **exclusive** options. Showing both as editable would offer a control that silently does nothing, since the deadline always wins.
+
+### Routines
+
+`AppData.routines` holds standing daily commitments — waking, lunch, dinner. `src/shared/routines.ts` resolves them to anchors for a date; an empty `weekdays` array means every day.
+
+**`src/shared/anchors.ts` (`dayAnchors`) is the single resolver** for everything fixed on a day, prayers and routines together. It replaced two hand-copied prayer expressions in `SchedulePane.generate()` and `DataContext.replan()` — with two copies, a routine added to one and not the other would make the generated day disagree with the day the planner sees.
+
+Routines block the **focus lane only**, exactly like prayer: eating lunch does not stop a 3D print, and occupying the parallel lane would also tell `planBacklog` the whole day is booked. `Anchor.source` rides through `schedule.ts` untouched onto `ScheduleBlock.anchorSource`, purely so the timeline can pick an icon — the generator still treats every anchor identically.
+
+### Carrying unfinished work forward
+
+`src/shared/carry.ts` sweeps days that have passed and reports the work left on them, which the reducer mints as backlog tasks and `replan` then places into the days ahead.
+
+- **The past is never rewritten.** Yesterday's blocks keep the shape the user last saw; only new backlog work is created.
+- `'planned'` carries in full, `'partial'` carries `plannedMinutes - actualMinutes`. **`'done'` and `'skipped'` carry nothing** — skipping is a decision, and re-carrying it would override the user by hand.
+- Blocks with a `backlogTaskId` are skipped: the planner already derives that task's remaining minutes as estimate-minus-placed, so minting more would double-count.
+- `DayData.carriedForward` is the per-day idempotency record, for the same reason as `recurringApplied` — a carried task the user deleted has to stay deleted. `carriedFromBlockId` on the task is the second guard.
 
 ### Per-day keying
 
@@ -119,7 +144,8 @@ Daily data lives under `AppData.days['YYYY-MM-DD']` using the **local** date fro
 - **Idempotency comes from arithmetic, not bookkeeping.** A task's remaining work is its estimate minus the minutes already carrying its `backlogTaskId`. A second run finds nothing left, so `hydrate` re-running placement can never duplicate.
 - **Anchors are passed in, never computed there** — `DataContext.replan()` resolves prayer times per day, so `plan.ts` stays prayer-agnostic and testable without a clock. Same seam as `generateSchedule`.
 - Tasks with **no estimate are never placed**; they still list. Guessing at how much of a day to spend is worse than leaving it to the user.
-- A task is never scheduled past its own `dueDate`, and work that doesn't fit the horizon comes back as `unplaced` rather than being dropped.
+- A task is never scheduled past its own `dueDate`, and work that doesn't fit the horizon comes back as `unplaced` rather than being dropped. `replan` discards it; `ChecklistPane` re-derives the same fact (an estimate, but zero placed minutes) as a "no room in the next two weeks" note, so it stays derived rather than stored.
+- Split work is named `"Task (Part 2 of 3)"`, counting the blocks that already carry the task id. Counting merely _whether_ any minutes were placed — as it once did — numbered the fourth piece of a task as its second, and the labels drifted on every re-plan.
 - Completing or deleting a task drops its **future** placements only; past blocks stay as history.
 
 `setSchedule` replaces a day wholesale, so `SchedulePane.generate()` dispatches `replan` straight after to re-place backlog work around the newly generated blocks.
@@ -138,11 +164,15 @@ A monthly rule set past the end of a short month clamps to that month's last day
 
 ### Business rules that live in the reducer
 
-The auto-journal link is the important one: `toggleChecklistItem` inserts a `JournalEntry` with `kind: 'auto'` and `checklistItemId` set when an item is checked, and removes that linked entry when it's unchecked. Deleting a checklist item deliberately keeps its journal entry — completed work stays in history. Keep this rule in the reducer rather than in pane components so it holds for every caller.
+The auto-journal link is the important one: `toggleBacklogTask` inserts a `JournalEntry` with `kind: 'auto'` and `checklistItemId` set when an item is checked, and removes that linked entry when it's unchecked. (The field name is a leftover from the per-day checklist that `v5ToV6` retired — it holds a backlog task id. `DayData.checklist` still exists but is always empty, kept so an older build still finds the field it expects.)
+
+`ChecklistPane` renders two things: `AppData.backlog`, and a **"On today's schedule" section derived from `today.schedule`** — the activity blocks with an `activityId`. Ticking one dispatches `setBlockStatus`, so the block and its journal entry are written by the same reducer path the Schedule tab uses; there is no second copy of the state. Blocks carrying a `backlogTaskId` are excluded from that section because the task itself is already listed below with its scheduled-at line. Deleting a checklist item deliberately keeps its journal entry — completed work stays in history. Keep this rule in the reducer rather than in pane components so it holds for every caller.
 
 ### Clock display vs clock storage
 
 `formatHM` is a **storage** format: `schedule.ts` uses it to write `block.start` / `block.end`, which persist as `"09:00"` and are read back with `parseHM`. `formatClock` / `formatClockMinutes` are the **display** helpers that render 12-hour (`"9:00 AM"`). Never render with `formatHM`, and never store with `formatClock` — swapping them corrupts every saved schedule.
+
+Two things used to break this rule and no longer do. `formatTimestamp` reached for `formatHM` and printed 24-hour journal entries. And **`<input type="time">` renders in Chromium's own UI locale, not the document's**, so the day window could read `13:00` while every other time in the app said `1:00 PM` — a native control sidestepping the rule entirely. `TimeField` replaces all four of those inputs with plain selects; its `value`/`onChange` stay in `'HH:mm'`, so only the presentation changed. Do not reintroduce `input[type=time]`.
 
 ### Prayer anchors
 
@@ -183,9 +213,17 @@ Both prompt queues are **derived, never stored** (`useEndedBlocks`). Answering c
 - `pauseDay` freezes the day **and** the running timer in one reducer case; two dispatches would mean two whole-document writes and a timer recording the pause as work.
 - A pause is a **within-day** device. Crossing midnight or running over ~8h clears it with **no shift**, enforced on `hydrate` and `setActiveDate` as well as on resume.
 
+### The timeline's coordinate origin
+
+Hour lines, both lanes and the now-line are absolutely positioned inside **`.timeline-body`**, which exists solely so all three share one origin. They used to be positioned against `.timeline`, whose `padding-top: 7px` offsets its in-flow children but not its absolute ones — so `.lanes` began 7px below the ruler and **every hour label sat 7px off the block it marked**, the whole way down the day. If you add anything positioned by minute, put it inside `.timeline-body`.
+
+The 54px gutter left of the lanes belongs to the hour labels; `.lane-headers` and `.nowline` are aligned to it rather than carrying their own guesses. Hour lines are drawn every 30 minutes, labelled on the hour and left as a fainter dotted tick on the half.
+
+`Lane` also renders `.gap` elements over `freeIntervals` — annotation only, `pointer-events: none`, nothing about the schedule changes because a gap is drawn. Gaps under 15 minutes are left unlabelled.
+
 ### Theming
 
-`Settings.theme` is `'system' | 'light' | 'dark'`, stamped onto `<html>` as `data-theme` by `useTheme`. `[data-theme='light']` carries the light palette and `[data-theme='system']` picks it up through `prefers-color-scheme`, so an explicit choice beats the media query rather than racing it. Both documents stamp their own root — the popover has no `DataContext`, so the choice rides along on `WidgetSummary`.
+`Settings.theme` is `'system' | 'light' | 'dark'`, stamped onto `<html>` as `data-theme` by `useTheme`. `SettingsPane` keeps the three-way control; the title-bar button is a shortcut that **resolves `'system'` against `prefers-color-scheme` before flipping**, so the first press never no-ops when the OS already matched. `[data-theme='light']` carries the light palette and `[data-theme='system']` picks it up through `prefers-color-scheme`, so an explicit choice beats the media query rather than racing it. Both documents stamp their own root — the popover has no `DataContext`, so the choice rides along on `WidgetSummary`.
 
 **The light lane colours are re-picked, not inverted.** Cyan and fuchsia tuned for a dark ground fall to roughly 1.8:1 on white. The light values are the same hues taken much darker, preserving the 104° gap. If they are ever re-picked, check the hue gap — contrast ratio alone will not tell you whether two lanes are distinguishable.
 

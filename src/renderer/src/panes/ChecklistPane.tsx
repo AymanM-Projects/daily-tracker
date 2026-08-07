@@ -2,12 +2,16 @@ import { useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import type { BacklogTask, DateKey, Priority } from '@shared/types'
 import { formatClock, formatDateLabel, formatMinutes, todayKey } from '@shared/time'
+import { effectivePriority } from '@shared/priority'
+import { byStart } from '@shared/blocks'
 import { useData } from '../state/DataContext'
 import EmptyState from '../components/EmptyState'
 import RecurringSheet from '../components/RecurringSheet'
+import UrgencyField from '../components/UrgencyField'
 import { CheckIcon, CheckSquareIcon, PlusIcon, RepeatIcon, TrashIcon } from '../components/icons'
 
-const PRIORITY_LABELS: Record<Priority, string> = { 1: 'High', 2: 'Med', 3: 'Low' }
+/** Short forms, because a backlog chip has less room than the Activities card. */
+const SHORT_PRIORITY: Record<Priority, string> = { 1: 'High', 2: 'Med', 3: 'Low' }
 
 const listVariants = { hidden: {}, show: { transition: { staggerChildren: 0.045 } } }
 const itemVariants = {
@@ -16,10 +20,10 @@ const itemVariants = {
 }
 
 /** Priority, then soonest deadline, then oldest — the same order the planner uses. */
-function sortBacklog(tasks: BacklogTask[]): BacklogTask[] {
+function sortBacklog(tasks: BacklogTask[], today: DateKey): BacklogTask[] {
   return [...tasks].sort(
     (a, b) =>
-      a.priority - b.priority ||
+      effectivePriority(a, today) - effectivePriority(b, today) ||
       (a.dueDate ?? '9999-12-31').localeCompare(b.dueDate ?? '9999-12-31') ||
       a.createdAt.localeCompare(b.createdAt)
   )
@@ -33,17 +37,42 @@ function dueLabel(due: DateKey): string {
 }
 
 function ChecklistPane(): React.JSX.Element {
-  const { state, backlog, dispatch } = useData()
+  const { state, today: todayData, backlog, dispatch } = useData()
   const [text, setText] = useState('')
   const [estimate, setEstimate] = useState('')
   const [priority, setPriority] = useState<Priority>(2)
-  const [due, setDue] = useState('')
+  const [due, setDue] = useState<DateKey | null>(null)
   const [showDone, setShowDone] = useState(false)
   const [showRecurring, setShowRecurring] = useState(false)
   const date = state.activeDate
+  const today = todayKey()
 
-  const open = useMemo(() => sortBacklog(backlog.filter((t) => !t.done)), [backlog])
+  const open = useMemo(
+    () =>
+      sortBacklog(
+        backlog.filter((t) => !t.done),
+        today
+      ),
+    [backlog, today]
+  )
   const done = useMemo(() => backlog.filter((t) => t.done), [backlog])
+
+  /**
+   * Today's scheduled activity work, as checkable items.
+   *
+   * Derived from the schedule rather than stored, so adding an activity and
+   * regenerating updates this list with no bookkeeping. Only blocks that came
+   * from an Activity appear: backlog work carries `backlogTaskId` and is already
+   * listed below with its own scheduled-at line, so including it would show the
+   * same task twice.
+   */
+  const todayBlocks = useMemo(
+    () =>
+      (todayData.schedule ?? [])
+        .filter((b) => b.kind === 'activity' && b.activityId !== null)
+        .sort(byStart),
+    [todayData.schedule]
+  )
 
   /** Where each task's work actually landed, so the list can say when it happens. */
   const placedAt = useMemo(() => {
@@ -73,11 +102,11 @@ function ChecklistPane(): React.JSX.Element {
       text: trimmed,
       estimateMinutes: Number.isFinite(mins) && mins > 0 ? mins : null,
       priority,
-      dueDate: due || null
+      dueDate: due
     })
     setText('')
     setEstimate('')
-    setDue('')
+    setDue(null)
   }
 
   return (
@@ -130,30 +159,70 @@ function ChecklistPane(): React.JSX.Element {
         </motion.button>
       </form>
 
-      <div className="add-meta">
-        <div className="seg seg-sm" role="radiogroup" aria-label="Priority">
-          {([1, 2, 3] as Priority[]).map((p) => (
-            <button
-              key={p}
-              type="button"
-              className={priority === p ? `seg-btn active p${p}` : 'seg-btn'}
-              onClick={() => setPriority(p)}
-              role="radio"
-              aria-checked={priority === p}
-            >
-              {PRIORITY_LABELS[p]}
-            </button>
-          ))}
-        </div>
-        <input
-          className="field field-due"
-          type="date"
-          value={due}
-          onChange={(e) => setDue(e.target.value)}
-          aria-label="Due date (optional)"
-          title="Due date (optional)"
-        />
-      </div>
+      <UrgencyField
+        priority={priority}
+        dueDate={due}
+        today={today}
+        onChange={(next) => {
+          setPriority(next.priority)
+          setDue(next.dueDate)
+        }}
+      />
+
+      {todayBlocks.length > 0 && (
+        <>
+          <h3 className="section-title">
+            On today&apos;s schedule
+            <span className="count">
+              {todayBlocks.filter((b) => b.status === 'done').length}/{todayBlocks.length}
+            </span>
+          </h3>
+          <motion.ul className="list" variants={listVariants} initial="hidden" animate="show">
+            {todayBlocks.map((block) => {
+              const checked = block.status === 'done'
+              return (
+                <motion.li
+                  key={block.id}
+                  className={checked ? 'card is-checked' : 'card'}
+                  layout
+                  variants={itemVariants}
+                >
+                  <button
+                    className={checked ? 'checkbox checked' : 'checkbox'}
+                    // one source of truth: this marks the BLOCK, and the reducer
+                    // writes the journal entry exactly as the schedule tab would
+                    onClick={() =>
+                      dispatch({
+                        type: 'setBlockStatus',
+                        date,
+                        blockId: block.id,
+                        status: checked ? 'planned' : 'done'
+                      })
+                    }
+                    aria-label={`${checked ? 'Uncheck' : 'Check off'} ${block.name}`}
+                    aria-pressed={checked}
+                  >
+                    {checked && <CheckIcon size={11} />}
+                  </button>
+                  <div className="card-body">
+                    <p className="card-name">{block.name}</p>
+                    <div className="card-meta">
+                      <span className="scheduled-at">
+                        {formatClock(block.start)} – {formatClock(block.end)}
+                      </span>
+                      {block.status === 'partial' && <span className="chip chip-est">partial</span>}
+                      {block.status === 'skipped' && (
+                        <span className="chip chip-overdue">skipped</span>
+                      )}
+                    </div>
+                  </div>
+                </motion.li>
+              )
+            })}
+          </motion.ul>
+          <h3 className="section-title">Everything else</h3>
+        </>
+      )}
 
       {open.length === 0 ? (
         <EmptyState
@@ -183,8 +252,8 @@ function ChecklistPane(): React.JSX.Element {
                   <div className="card-body">
                     <p className="card-name">{task.text}</p>
                     <div className="card-meta">
-                      <span className={`chip chip-p${task.priority}`}>
-                        {PRIORITY_LABELS[task.priority]}
+                      <span className={`chip chip-p${effectivePriority(task, today)}`}>
+                        {SHORT_PRIORITY[effectivePriority(task, today)]}
                       </span>
                       {task.estimateMinutes !== null && (
                         <span className="chip chip-est">{formatMinutes(task.estimateMinutes)}</span>
@@ -209,10 +278,14 @@ function ChecklistPane(): React.JSX.Element {
                           {at.date === todayKey() ? 'today' : dueLabel(at.date)}{' '}
                           {formatClock(at.start)}
                         </span>
+                      ) : task.estimateMinutes === null ? (
+                        <span className="scheduled-at muted">add an estimate to schedule it</span>
                       ) : (
-                        task.estimateMinutes === null && (
-                          <span className="scheduled-at muted">add an estimate to schedule it</span>
-                        )
+                        /* it has an estimate and still landed nowhere, which
+                           means the planner found no room inside its horizon —
+                           derived here rather than stored, like every other
+                           "what does the schedule imply" signal in the app */
+                        <span className="scheduled-at warn">no room in the next two weeks</span>
                       )}
                     </div>
                   </div>

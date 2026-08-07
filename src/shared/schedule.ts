@@ -1,5 +1,13 @@
-import type { Activity, ScheduleBlock, ScheduleLane, Settings } from './types'
+import type {
+  Activity,
+  AnchorSource,
+  DateKey,
+  ScheduleBlock,
+  ScheduleLane,
+  Settings
+} from './types'
 import { makeFreeBlock } from './blocks'
+import { effectivePriority } from './priority'
 import { formatHM, parseHM } from './time'
 
 export interface ScheduleResult {
@@ -12,15 +20,30 @@ export interface Anchor {
   name: string
   start: number
   end: number
+  /**
+   * Where it came from, copied onto the emitted block purely so the timeline can
+   * pick an icon. This module never reads it — every anchor is treated alike.
+   */
+  source?: AnchorSource
 }
 
 export interface GenerateOptions {
   /**
-   * Fixed commitments — prayers today, though this module deliberately knows
-   * nothing about what they are. They block the FOCUS lane only: a 3D print or
-   * a vibecoding run keeps running, which is the point of the parallel lane.
+   * Fixed commitments — prayers and routines, though this module deliberately
+   * knows nothing about what they are. They block the FOCUS lane only: a 3D
+   * print or a vibecoding run keeps running, which is the point of the
+   * parallel lane.
    */
   anchors?: Anchor[]
+  /**
+   * The day being generated, used to turn a deadline into a priority.
+   *
+   * Passed in rather than read from a clock, the same seam `anchors` uses, so
+   * this module stays pure and testable. Omitting it means deadlines are
+   * ignored and the hand-set priority stands — which is the right answer for a
+   * test that has nothing to say about deadlines.
+   */
+  today?: DateKey
   /**
    * Spans the generator must route around but must NOT emit — blocks that
    * already exist and are being kept, such as a hand-edited or settled block fed
@@ -49,10 +72,19 @@ export function avoidAnchors(cursor: number, duration: number, anchors: Anchor[]
   return at
 }
 
-function sortForSchedule(activities: Activity[]): Activity[] {
+/**
+ * Priority, then shortest first, then oldest.
+ *
+ * The priority is the EFFECTIVE one, so an activity with a deadline sorts by how
+ * close that deadline is rather than by whatever level was set by hand. Without
+ * a `today` there is nothing to measure a deadline against, so the hand-set
+ * level stands.
+ */
+function sortForSchedule(activities: Activity[], today?: DateKey): Activity[] {
+  const level = (a: Activity): number => (today ? effectivePriority(a, today) : a.priority)
   return [...activities].sort(
     (a, b) =>
-      a.priority - b.priority ||
+      level(a) - level(b) ||
       a.durationMinutes - b.durationMinutes ||
       a.createdAt.localeCompare(b.createdAt)
   )
@@ -62,7 +94,8 @@ function fillLane(
   activities: Activity[],
   lane: ScheduleLane,
   settings: Settings,
-  anchors: Anchor[]
+  anchors: Anchor[],
+  today?: DateKey
 ): { blocks: ScheduleBlock[]; unscheduled: string[] } {
   const dayStart = parseHM(settings.dayStart)
   const dayEnd = parseHM(settings.dayEnd)
@@ -75,7 +108,7 @@ function fillLane(
     lane === 'focus' &&
     settings.freeBufferMinutes > 0 &&
     settings.freeBufferEveryMinutes > 0
-  const sorted = sortForSchedule(activities)
+  const sorted = sortForSchedule(activities, today)
   const blocks: ScheduleBlock[] = []
   const unscheduled: string[] = []
   let cursor = dayStart
@@ -94,6 +127,7 @@ function fillLane(
       lane,
       activityId: activity.id,
       backlogTaskId: null,
+      anchorSource: null,
       name: activity.name,
       start: formatHM(cursor),
       end: formatHM(end),
@@ -143,6 +177,7 @@ function fillLane(
         lane,
         activityId: null,
         backlogTaskId: null,
+        anchorSource: null,
         name: 'Break',
         start: formatHM(cursor),
         end: formatHM(cursor + settings.breakMinutes),
@@ -194,6 +229,7 @@ export function generateSchedule(
     lane: 'focus' as const,
     activityId: null,
     backlogTaskId: null,
+    anchorSource: a.source ?? null,
     name: a.name,
     start: formatHM(a.start),
     end: formatHM(a.end),
@@ -211,14 +247,16 @@ export function generateSchedule(
     activities.filter((a) => a.mode === 'focus'),
     'focus',
     settings,
-    anchors
+    anchors,
+    options.today
   )
   const parallel = fillLane(
     activities.filter((a) => a.mode === 'background'),
     'parallel',
     settings,
     // the parallel lane runs straight through anchors on purpose
-    []
+    [],
+    options.today
   )
   return {
     blocks: [...anchorBlocks, ...focus.blocks, ...parallel.blocks],

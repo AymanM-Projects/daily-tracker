@@ -115,6 +115,7 @@ export function makeFreeBlock(
     lane,
     activityId: null,
     backlogTaskId: null,
+    anchorSource: null,
     name: 'Free',
     start: formatHM(start),
     end: formatHM(end),

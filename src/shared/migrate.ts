@@ -5,7 +5,7 @@ import { defaultActivitySet, defaultPrayerSettings, defaultSettings } from './de
  * Bump this whenever the on-disk shape changes, and add a matching step to the
  * chain in `migrate()`. `src/main/store.ts` backs the file up before applying.
  */
-export const CURRENT_VERSION = 8
+export const CURRENT_VERSION = 9
 
 type AnyData = Record<string, unknown>
 
@@ -240,6 +240,47 @@ function v7ToV8(data: AnyData): AnyData {
 }
 
 /**
+ * v9 adds daily routines, activity deadlines, and the carry-forward sweep.
+ *
+ * `carriedForward` is set to TRUE on every day that already exists. The sweep in
+ * shared/carry.ts turns unfinished blocks into backlog work, so defaulting these
+ * to false would make the first launch after this upgrade harvest months of
+ * history at once and bury the backlog under work the user has long since moved
+ * past. Only days created from here on are swept.
+ *
+ * No routines are invented, and no activity gains a deadline — both start empty,
+ * which is exactly the behaviour every existing document already had.
+ */
+function v8ToV9(data: AnyData): AnyData {
+  const days = asRecord(data.days)
+
+  return {
+    ...data,
+    version: 9,
+    routines: data.routines ?? [],
+    activities: asArray(data.activities).map((a) => ({
+      ...(a as AnyData),
+      dueDate: (a as AnyData).dueDate ?? null
+    })),
+    days: Object.fromEntries(
+      Object.entries(days).map(([key, day]) => [
+        key,
+        {
+          ...day,
+          carriedForward: day.carriedForward ?? true,
+          schedule: Array.isArray(day.schedule)
+            ? (day.schedule as AnyData[]).map((b) => ({
+                ...b,
+                anchorSource: b.anchorSource ?? null
+              }))
+            : day.schedule
+        }
+      ])
+    )
+  }
+}
+
+/**
  * Upgrades a parsed document to CURRENT_VERSION. Steps run in sequence, so a
  * document several versions behind walks through each one in turn.
  */
@@ -252,5 +293,6 @@ export function migrate(raw: AnyData): AppData {
   if ((data.version as number) === 5) data = v5ToV6(data)
   if ((data.version as number) === 6) data = v6ToV7(data)
   if ((data.version as number) === 7) data = v7ToV8(data)
+  if ((data.version as number) === 8) data = v8ToV9(data)
   return data as unknown as AppData
 }

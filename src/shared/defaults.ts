@@ -60,7 +60,8 @@ export function emptyDay(): DayData {
     schedule: null,
     unscheduled: null,
     activitySetId: null,
-    recurringApplied: []
+    recurringApplied: [],
+    carriedForward: false
   }
 }
 
@@ -70,13 +71,14 @@ export function getDay(data: AppData, date: DateKey): DayData {
 
 export function defaultAppData(): AppData {
   return {
-    version: 8,
+    version: 9,
     activeTimer: null,
     dayPause: null,
     projects: [],
     activitySets: [defaultActivitySet()],
     activities: [],
     recurringTasks: [],
+    routines: [],
     backlog: [],
     prayer: defaultPrayerSettings(),
     settings: defaultSettings(),

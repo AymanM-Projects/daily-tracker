@@ -21,6 +21,7 @@ import type {
   PrayerSettings,
   Priority,
   RecurringTask,
+  Routine,
   ScheduleBlock,
   Settings
 } from '@shared/types'
@@ -38,7 +39,8 @@ import {
 import { elapsedMinutes } from '@shared/timer'
 import { pendingRules } from '@shared/recurrence'
 import { PLAN_DEFAULTS, planBacklog } from '@shared/plan'
-import { prayerTimes } from '@shared/prayer'
+import { dayAnchors } from '@shared/anchors'
+import { alreadyCarried, carryForward, daysToSweep } from '@shared/carry'
 import { minutesNow, parseHM, shiftDateKey, todayKey } from '@shared/time'
 
 export interface State {
@@ -56,6 +58,7 @@ export type Action =
       durationMinutes: number
       priority: Priority
       mode: ActivityMode
+      dueDate: DateKey | null
     }
   | { type: 'updateActivity'; activity: Activity }
   | { type: 'deleteActivity'; id: string }
@@ -78,6 +81,9 @@ export type Action =
     }
   | { type: 'updateRecurringTask'; task: RecurringTask }
   | { type: 'deleteRecurringTask'; id: string }
+  | { type: 'addRoutine'; routine: Omit<Routine, 'id' | 'createdAt'> }
+  | { type: 'updateRoutine'; routine: Routine }
+  | { type: 'deleteRoutine'; id: string }
   | { type: 'addJournalEntry'; date: DateKey; text: string }
   | { type: 'setSchedule'; date: DateKey; blocks: ScheduleBlock[]; unscheduled: string[] }
   | { type: 'updateSettings'; patch: Partial<Settings> }
@@ -220,6 +226,52 @@ function applyRecurring(data: AppData, date: DateKey): AppData {
 }
 
 /**
+ * Turn work left unfinished on days that have passed into standing backlog
+ * tasks, so it reappears on the days ahead instead of vanishing with the date.
+ *
+ * The past is never rewritten. Yesterday's blocks keep exactly the shape the
+ * user last saw — a day that has happened is a record, and tidying it after the
+ * fact would claim a history that never occurred. All that changes is that the
+ * outstanding minutes become new tasks; `replan` then places them.
+ *
+ * `carriedForward` is stamped on each swept day, which is what makes this run
+ * once. Deleting a carried task must leave it deleted, exactly as with
+ * `recurringApplied`.
+ */
+function applyCarryForward(data: AppData, today: DateKey): AppData {
+  const stale = daysToSweep(data.days, today)
+  if (stale.length === 0) return data
+
+  const now = new Date().toISOString()
+  const created: BacklogTask[] = []
+  const days = { ...data.days }
+
+  for (const date of stale) {
+    for (const work of carryForward(days[date], date, today)) {
+      // second guard behind `carriedForward`: even if a day were somehow swept
+      // twice, a block can only ever mint one task
+      if (alreadyCarried([...data.backlog, ...created], work.sourceBlockId)) continue
+      created.push({
+        id: crypto.randomUUID(),
+        text: work.text,
+        priority: work.priority,
+        estimateMinutes: work.estimateMinutes,
+        dueDate: work.dueDate,
+        done: false,
+        completedAt: null,
+        createdAt: now,
+        carriedFromBlockId: work.sourceBlockId
+      })
+    }
+    days[date] = { ...days[date], carriedForward: true }
+  }
+
+  const swept = { ...data, days, backlog: [...data.backlog, ...created] }
+  // nothing outstanding, but the days are still marked so they are not re-read
+  return created.length === 0 ? swept : replan(swept, today)
+}
+
+/**
  * Re-run placement for everything still outstanding in the backlog.
  *
  * Additive by construction: `planBacklog` only ever returns blocks for free
@@ -232,15 +284,13 @@ function replan(data: AppData, from: DateKey): AppData {
     if (day.schedule) days[date] = day.schedule
   }
 
-  // prayer times are resolved here so shared/plan.ts stays prayer-agnostic
+  // Prayers and routines are resolved here so shared/plan.ts stays ignorant of
+  // both. `dayAnchors` is the same function SchedulePane.generate() uses, so the
+  // day the button builds and the day the planner sees agree on what is fixed.
   const anchorsByDate: Record<DateKey, Anchor[]> = {}
-  if (data.prayer.enabled) {
-    for (let i = 0; i < PLAN_DEFAULTS.horizonDays; i++) {
-      const date = shiftDateKey(from, i)
-      anchorsByDate[date] = prayerTimes(date, data.prayer)
-        .filter((t) => data.prayer.include.includes(t.name))
-        .map((t) => ({ name: t.name, start: t.minutes, end: t.minutes + data.prayer.blockMinutes }))
-    }
+  for (let i = 0; i < PLAN_DEFAULTS.horizonDays; i++) {
+    const date = shiftDateKey(from, i)
+    anchorsByDate[date] = dayAnchors(data, date)
   }
 
   const { placements } = planBacklog({
@@ -318,7 +368,9 @@ function reducer(state: State, action: Action): State {
     case 'hydrate':
       return {
         ...state,
-        data: clearStalePause(applyRecurring(action.data, state.activeDate)),
+        data: clearStalePause(
+          applyCarryForward(applyRecurring(action.data, state.activeDate), state.activeDate)
+        ),
         hydrated: true
       }
     case 'setActiveDate':
@@ -327,7 +379,9 @@ function reducer(state: State, action: Action): State {
       return {
         ...state,
         activeDate: action.date,
-        data: clearStalePause(applyRecurring(state.data, action.date))
+        data: clearStalePause(
+          applyCarryForward(applyRecurring(state.data, action.date), action.date)
+        )
       }
     case 'addActivity': {
       const activity: Activity = {
@@ -336,6 +390,7 @@ function reducer(state: State, action: Action): State {
         durationMinutes: action.durationMinutes,
         priority: action.priority,
         mode: action.mode,
+        dueDate: action.dueDate,
         projectId: null, // wired to the UI in Phase 2
         createdAt: new Date().toISOString()
       }
@@ -428,6 +483,32 @@ function reducer(state: State, action: Action): State {
       }
     case 'replan':
       return { ...state, data: replan(state.data, action.date) }
+    // Routines only take effect on the next Regenerate. A day already underway
+    // is never rewritten from a settings change — the same rule the schedule
+    // generator follows, and the reason regeneration is a button.
+    case 'addRoutine': {
+      const routine: Routine = {
+        ...action.routine,
+        id: crypto.randomUUID(),
+        createdAt: new Date().toISOString()
+      }
+      return { ...state, data: { ...state.data, routines: [...state.data.routines, routine] } }
+    }
+    case 'updateRoutine':
+      return {
+        ...state,
+        data: {
+          ...state.data,
+          routines: state.data.routines.map((r) =>
+            r.id === action.routine.id ? action.routine : r
+          )
+        }
+      }
+    case 'deleteRoutine':
+      return {
+        ...state,
+        data: { ...state.data, routines: state.data.routines.filter((r) => r.id !== action.id) }
+      }
     case 'addRecurringTask': {
       const task: RecurringTask = {
         ...action.task,
@@ -718,6 +799,7 @@ interface DataContextValue {
   today: DayData
   activities: Activity[]
   recurringTasks: RecurringTask[]
+  routines: Routine[]
   backlog: BacklogTask[]
   settings: Settings
   prayer: PrayerSettings
@@ -769,6 +851,7 @@ export function DataProvider({ children }: { children: ReactNode }): React.JSX.E
       today: getDay(state.data, state.activeDate),
       activities: state.data.activities,
       recurringTasks: state.data.recurringTasks,
+      routines: state.data.routines,
       backlog: state.data.backlog,
       settings: state.data.settings,
       prayer: state.data.prayer

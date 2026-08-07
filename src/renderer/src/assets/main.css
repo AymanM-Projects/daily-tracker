@@ -260,6 +260,11 @@ textarea {
   color: var(--accent);
 }
 
+/* has an estimate but the planner found nowhere to put it inside the horizon */
+.scheduled-at.warn {
+  color: var(--warn);
+}
+
 .scheduled-at.muted {
   color: var(--text-muted);
   font-family: var(--font-sans);
@@ -891,6 +896,63 @@ textarea.field {
   color: var(--text-muted);
 }
 
+/*
+ * 12-hour time picker, replacing `input[type=time]`.
+ *
+ * The native control renders in Chromium's own UI locale rather than the
+ * document's, so it could show 13:00 while every other time in the app read
+ * 1:00 PM. Three selects are dull but they are the same in every locale.
+ */
+.timefield {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 1px 2px;
+}
+
+.timefield:focus-within {
+  border-color: var(--accent);
+}
+
+.tf-part {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 1px;
+  cursor: pointer;
+}
+
+.tf-part:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: 3px;
+}
+
+.tf-meridiem {
+  margin-left: 2px;
+  color: var(--text-secondary);
+}
+
+.tf-colon {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* the sheet's time row sits under a label rather than beside it */
+.routine-when {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .switch {
   display: inline-flex;
   align-items: center;
@@ -922,10 +984,45 @@ textarea.field {
   background: var(--text);
 }
 
+/* matches .timeline's gutter, so each chip sits over the lane it names */
 .lane-headers {
   display: flex;
   gap: 8px;
-  padding-left: 40px;
+  padding-left: 54px;
+}
+
+/* a divider inside a pane — smaller than .pane-title, which names the whole tab */
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+}
+
+/* a scheduled block already ticked off in the checklist */
+.card.is-checked .card-name {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+/* second line inside a settings label, for state the row is reporting */
+.setting-hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+/* keeps the sun/moon swap from nudging the button's layout as it rotates */
+.theme-icon {
+  display: grid;
+  place-items: center;
 }
 
 .lane-headers .spacer-focus {
@@ -962,11 +1059,30 @@ textarea.field {
   flex-shrink: 0;
 }
 
+/*
+ * The single coordinate origin for everything inside the day.
+ *
+ * Hour lines, lanes and the now-line are all positioned against THIS, not
+ * `.timeline`. They used to be absolute against `.timeline`, whose padding-top
+ * offsets its in-flow children — so `.lanes` began 7px lower than the ruler and
+ * every hour label sat 7px above the block it was marking.
+ */
+.timeline-body {
+  position: relative;
+}
+
 .hourline {
   position: absolute;
-  left: 54px;
+  left: 0;
   right: 0;
   border-top: 1px solid var(--hairline);
+}
+
+/* an unlabelled half-hour tick — a 30-minute block is only 32px tall, which is
+   hard to size by eye against hour lines alone */
+.hourline.half {
+  border-top-style: dotted;
+  opacity: 0.5;
 }
 
 /*
@@ -981,8 +1097,8 @@ textarea.field {
   transform: translateY(-50%);
   white-space: nowrap;
   font-family: var(--font-mono);
-  font-size: 9px;
-  color: var(--text-muted);
+  font-size: 10px;
+  color: var(--text-secondary);
 }
 
 .lanes {
@@ -1000,6 +1116,36 @@ textarea.field {
 
 .lane-parallel {
   flex: 1;
+}
+
+/*
+ * Unbooked time between two blocks.
+ *
+ * Sits behind the blocks (no z-index, and it is emitted first) and takes no
+ * pointer events, so it can never intercept a click meant for a block. It is
+ * pure annotation — nothing about the schedule changes because a gap is drawn.
+ */
+.gap {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.gap-label {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  opacity: 0.75;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  padding: 0 4px;
 }
 
 .block {
@@ -1589,9 +1735,11 @@ button.block:hover {
   color: var(--warn);
 }
 
+/* left: 0 is the lane edge now that it lives in .timeline-body — it used to
+   start 20px inside the label gutter and cut across the hour labels */
 .nowline {
   position: absolute;
-  left: 34px;
+  left: 0;
   right: 0;
   border-top: 2px solid var(--danger);
   z-index: 5;

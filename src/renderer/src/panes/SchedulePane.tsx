@@ -2,14 +2,15 @@ import { useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import type { ScheduleBlock } from '@shared/types'
 import { generateSchedule, type Anchor } from '@shared/schedule'
-import { prayerTimes } from '@shared/prayer'
-import { blockSpan, byStart } from '@shared/blocks'
-import { formatClock, formatClockMinutes, minutesNow, parseHM } from '@shared/time'
+import { dayAnchors } from '@shared/anchors'
+import { blockSpan, byStart, freeIntervals } from '@shared/blocks'
+import { formatClock, formatClockMinutes, formatMinutes, minutesNow, parseHM } from '@shared/time'
 import { useData } from '../state/DataContext'
 import { useTimer } from '../hooks/useTimer'
 import { useEndedBlocks } from '../hooks/useEndedBlocks'
 import EmptyState from '../components/EmptyState'
 import BlockSheet from '../components/BlockSheet'
+import TimeField from '../components/TimeField'
 import {
   AlertIcon,
   CalendarIcon,
@@ -18,10 +19,14 @@ import {
   MoonIcon,
   PlayIcon,
   SkipIcon,
-  SparklesIcon
+  SparklesIcon,
+  SunriseIcon
 } from '../components/icons'
 
 const PX_PER_MIN = 64 / 60
+
+/** Below this a gap is real but not worth naming — the label would outsize the slot. */
+const MIN_LABELLED_GAP = 15
 
 const minutesOfISO = (iso: string): number => {
   const d = new Date(iso)
@@ -62,8 +67,34 @@ function Lane({
   // the way the eye expects.
   const ordered = [...blocks].sort(byStart)
 
+  // Dead time between blocks, labelled so a packed morning and a scattered one
+  // read differently at a glance. Derived from the same `freeIntervals` the
+  // planner uses, so what the gap says is what the planner would fill. Short
+  // gaps are left blank — a label longer than its own slot is just noise.
+  const gaps =
+    ordered.length === 0
+      ? []
+      : freeIntervals(
+          ordered.map(blockSpan),
+          blockSpan(ordered[0]).start,
+          Math.max(...ordered.map((b) => blockSpan(b).end))
+        ).filter((g) => g.end - g.start >= MIN_LABELLED_GAP)
+
   return (
     <div className={className}>
+      {gaps.map((gap) => (
+        <div
+          key={`gap-${gap.start}`}
+          className="gap"
+          style={{
+            top: (gap.start - dayStartMin) * PX_PER_MIN,
+            height: (gap.end - gap.start) * PX_PER_MIN
+          }}
+          aria-hidden="true"
+        >
+          <span className="gap-label">{formatMinutes(gap.end - gap.start)} free</span>
+        </div>
+      ))}
       {ordered.map((block, index) => {
         const { start, end } = blockSpan(block)
         const rawHeight = (end - start) * PX_PER_MIN - 3
@@ -107,7 +138,13 @@ function Lane({
         ) : isAnchor ? (
           <>
             <span className="block-name">
-              <MoonIcon size={10} />
+              {/* a routine and a prayer are both anchors to the generator, but
+                  telling them apart at a glance is the point of showing icons */}
+              {block.anchorSource === 'routine' ? (
+                <SunriseIcon size={10} />
+              ) : (
+                <MoonIcon size={10} />
+              )}
               {block.name}
             </span>
             {height >= 30 && <span className="block-time">{range}</span>}
@@ -172,7 +209,8 @@ function Lane({
 }
 
 function SchedulePane(): React.JSX.Element {
-  const { state, today, activities, settings, prayer, dispatch } = useData()
+  // prayer is no longer read here — `dayAnchors` resolves it, along with routines
+  const { state, today, activities, settings, dispatch } = useData()
   const date = state.activeDate
   const timer = useTimer()
   const { stale } = useEndedBlocks()
@@ -193,17 +231,11 @@ function SchedulePane(): React.JSX.Element {
   const canGenerate = activities.length > 0 && !invalidWindow
 
   const generate = (): void => {
-    // prayer times are resolved here, not in schedule.ts — the generator takes
-    // anchors as plain data and knows nothing about what they represent
-    const anchors: Anchor[] = prayer.enabled
-      ? prayerTimes(date, prayer)
-          .filter((t) => prayer.include.includes(t.name))
-          .map((t) => ({
-            name: t.name,
-            start: t.minutes,
-            end: t.minutes + prayer.blockMinutes
-          }))
-      : []
+    // Prayers and routines are resolved here, not in schedule.ts — the generator
+    // takes anchors as plain data and knows nothing about what they represent.
+    // `dayAnchors` is the same resolver the backlog planner uses, so the day this
+    // button builds and the day the planner sees agree on what is fixed.
+    const anchors: Anchor[] = dayAnchors(state.data, date)
     // Anything hand-edited or already settled survives regeneration, fed back in
     // as anchors so the generator flows around it. The seam costs nothing:
     // `generateSchedule` takes anchors as plain {name, start, end} data, and a
@@ -227,7 +259,8 @@ function SchedulePane(): React.JSX.Element {
     const result = generateSchedule(
       activities.filter((a) => !alreadyPlaced.has(a.id)),
       settings,
-      { anchors, reserved: pinned }
+      // `today` lets an activity with a deadline sort by how close that date is
+      { anchors, reserved: pinned, today: date }
     )
     dispatch({
       type: 'setSchedule',
@@ -250,8 +283,11 @@ function SchedulePane(): React.JSX.Element {
   const maxEnd = blocks.reduce((max, b) => Math.max(max, blockSpan(b).end), dayEndMin)
   const timelineHeight = (maxEnd - dayStartMin) * PX_PER_MIN
 
+  // Every 30 minutes: the hour gets a label, the half gets a fainter unlabelled
+  // tick. At 64px/hour a 30-minute block is 32px tall, which is hard to size by
+  // eye against hour lines alone.
   const hourLines: number[] = []
-  for (let m = Math.ceil(dayStartMin / 60) * 60; m <= maxEnd; m += 60) {
+  for (let m = Math.ceil(dayStartMin / 30) * 30; m <= maxEnd; m += 30) {
     hourLines.push(m)
   }
 
@@ -262,29 +298,25 @@ function SchedulePane(): React.JSX.Element {
       <h2 className="pane-title">Day plan</h2>
       <div className="sched-controls">
         <div className="sched-row">
-          <label className="time-label">
+          <span className="time-label">
             Start
-            <input
-              className="field field-time"
-              type="time"
+            <TimeField
               value={settings.dayStart}
-              onChange={(e) =>
-                dispatch({ type: 'updateSettings', patch: { dayStart: e.target.value } })
-              }
+              onChange={(dayStart) => dispatch({ type: 'updateSettings', patch: { dayStart } })}
+              step={15}
+              label="Day start"
             />
-          </label>
+          </span>
           <span className="range-dash">–</span>
-          <label className="time-label">
+          <span className="time-label">
             End
-            <input
-              className="field field-time"
-              type="time"
+            <TimeField
               value={settings.dayEnd}
-              onChange={(e) =>
-                dispatch({ type: 'updateSettings', patch: { dayEnd: e.target.value } })
-              }
+              onChange={(dayEnd) => dispatch({ type: 'updateSettings', patch: { dayEnd } })}
+              step={15}
+              label="Day end"
             />
-          </label>
+          </span>
         </div>
         <div className="sched-row">
           <button
@@ -376,34 +408,46 @@ function SchedulePane(): React.JSX.Element {
             initial="hidden"
             animate="show"
           >
-            {hourLines.map((m) => (
-              <div key={m} className="hourline" style={{ top: (m - dayStartMin) * PX_PER_MIN }}>
-                <span className="hourline-label">{formatClockMinutes(m)}</span>
-              </div>
-            ))}
-            <div className="lanes">
-              <Lane
-                blocks={focusBlocks}
-                dayStartMin={dayStartMin}
-                nowMin={showNowLine ? nowMin : null}
-                runningId={timer?.block.id ?? null}
-                onSelect={(b) => setSelectedId(b.id)}
-                className="lane"
-              />
-              {hasParallel && (
+            {/*
+              One coordinate origin for the ruler, the lanes and the now-line.
+              The hour lines used to be absolute against `.timeline`, whose
+              padding-top pushed `.lanes` 7px lower — so every hour label sat 7px
+              off the block it was marking, all the way down the day.
+            */}
+            <div className="timeline-body" style={{ height: timelineHeight }}>
+              {hourLines.map((m) => (
+                <div
+                  key={m}
+                  className={m % 60 === 0 ? 'hourline' : 'hourline half'}
+                  style={{ top: (m - dayStartMin) * PX_PER_MIN }}
+                >
+                  {m % 60 === 0 && <span className="hourline-label">{formatClockMinutes(m)}</span>}
+                </div>
+              ))}
+              <div className="lanes">
                 <Lane
-                  blocks={parallelBlocks}
+                  blocks={focusBlocks}
                   dayStartMin={dayStartMin}
                   nowMin={showNowLine ? nowMin : null}
                   runningId={timer?.block.id ?? null}
                   onSelect={(b) => setSelectedId(b.id)}
-                  className="lane lane-parallel"
+                  className="lane"
                 />
+                {hasParallel && (
+                  <Lane
+                    blocks={parallelBlocks}
+                    dayStartMin={dayStartMin}
+                    nowMin={showNowLine ? nowMin : null}
+                    runningId={timer?.block.id ?? null}
+                    onSelect={(b) => setSelectedId(b.id)}
+                    className="lane lane-parallel"
+                  />
+                )}
+              </div>
+              {showNowLine && (
+                <div className="nowline" style={{ top: (nowMin - dayStartMin) * PX_PER_MIN }} />
               )}
             </div>
-            {showNowLine && (
-              <div className="nowline" style={{ top: (nowMin - dayStartMin) * PX_PER_MIN }} />
-            )}
           </motion.div>
           {today.unscheduled && today.unscheduled.length > 0 && (
             <div className="unscheduled">
