@@ -23,6 +23,11 @@ import {
 
 const PX_PER_MIN = 64 / 60
 
+const minutesOfISO = (iso: string): number => {
+  const d = new Date(iso)
+  return d.getHours() * 60 + d.getMinutes()
+}
+
 const timelineVariants = {
   hidden: {},
   show: { transition: { staggerChildren: 0.05 } }
@@ -171,11 +176,14 @@ function SchedulePane(): React.JSX.Element {
   const date = state.activeDate
   const timer = useTimer()
   const { stale } = useEndedBlocks()
-  const [nowMin, setNowMin] = useState(minutesNow())
+  const pause = state.data.dayPause
+  const [liveNow, setLiveNow] = useState(minutesNow())
+  // a stopped clock is the truthful rendering when the day's clock is stopped
+  const nowMin = pause ? minutesOfISO(pause.pausedAt) : liveNow
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
   useEffect(() => {
-    const interval = setInterval(() => setNowMin(minutesNow()), 30_000)
+    const interval = setInterval(() => setLiveNow(minutesNow()), 30_000)
     return () => clearInterval(interval)
   }, [])
 
@@ -354,7 +362,7 @@ function SchedulePane(): React.JSX.Element {
           )}
           <motion.div
             key={blocks[0].id}
-            className="timeline"
+            className={pause ? 'timeline is-paused' : 'timeline'}
             style={{ height: timelineHeight + 12 }}
             variants={timelineVariants}
             initial="hidden"

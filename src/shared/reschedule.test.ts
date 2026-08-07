@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import type { ScheduleBlock } from './types'
+import type { BacklogTask, ScheduleBlock } from './types'
 import {
+  bankSpilled,
   editBlock,
   extendBlock,
   insertBlock,
   removeBlock,
   shiftAfter,
+  spill,
   truncate,
   type DayWindow,
   type Result
@@ -441,6 +443,97 @@ describe('extendBlock', () => {
     const once = extendBlock(blocks, 'a', 15).blocks
     const twice = extendBlock(once, 'a', 15).blocks
     expect(twice[0]).toMatchObject({ end: '10:30', plannedMinutes: 60 })
+  })
+})
+
+describe('spill', () => {
+  const DAY_END = at(17)
+
+  it('keeps a straddling head worth doing and spills only the tail', () => {
+    const r = spill([block({ id: 'a', start: '16:00', end: '18:00', name: 'Essay' })], DAY_END)
+    expect(lines(r.blocks)).toEqual(['activity focus 16:00-17:00 Essay'])
+    expect(r.spilled).toEqual([
+      { name: 'Essay', minutes: 60, backlogTaskId: null, activityId: 'a1' }
+    ])
+  })
+
+  it('moves the whole block when the surviving head would be a sliver', () => {
+    const r = spill([block({ id: 'a', start: '16:50', end: '18:00', name: 'Essay' })], DAY_END)
+    expect(r.blocks).toEqual([])
+    expect(r.spilled[0]).toMatchObject({ minutes: 70 })
+  })
+
+  it('drops protected time past the end rather than banking rest as a task', () => {
+    const r = spill([free('f', at(16), at(18))], DAY_END)
+    expect(lines(r.blocks)).toEqual(['free focus 16:00-17:00 Free'])
+    expect(r.spilled).toEqual([])
+  })
+
+  it('never spills history or anchors', () => {
+    const r = spill(
+      [
+        block({ id: 'd', start: '16:00', end: '18:00', name: 'Done', status: 'done' }),
+        anchor('p', at(17, 30), at(17, 50))
+      ],
+      DAY_END
+    )
+    expect(r.spilled).toEqual([])
+    expect(r.blocks).toHaveLength(2)
+  })
+
+  it('leaves a day that already fits completely alone', () => {
+    const blocks = [block({ id: 'a', start: '09:00', end: '10:00' })]
+    expect(spill(blocks, DAY_END)).toEqual({ blocks, spilled: [] })
+  })
+})
+
+describe('bankSpilled', () => {
+  const task = (over: Partial<BacklogTask> = {}): BacklogTask => ({
+    id: 't1',
+    text: 'Essay',
+    priority: 2,
+    estimateMinutes: 120,
+    dueDate: null,
+    done: false,
+    completedAt: null,
+    createdAt: '2026-08-01T00:00:00.000Z',
+    ...over
+  })
+
+  it('leaves placed work untouched — the planner reopens it by arithmetic', () => {
+    // shortening the block already dropped `placed` by 60, so remaining grows by
+    // 60 on its own. Raising the estimate here would schedule the work twice.
+    const backlog = [task()]
+    const out = bankSpilled(
+      [{ name: 'Essay (2 of 2)', minutes: 60, backlogTaskId: 't1', activityId: null }],
+      backlog
+    )
+    expect(out).toEqual(backlog)
+  })
+
+  it('mints a task for a generated activity block, which has nothing to reopen', () => {
+    const out = bankSpilled(
+      [{ name: 'Deep work', minutes: 45, backlogTaskId: null, activityId: 'act1' }],
+      [],
+      { makeId: ids('t'), now: '2026-08-07T00:00:00.000Z', priorityOf: () => 1 }
+    )
+    expect(out).toEqual([
+      {
+        id: 't1',
+        text: 'Deep work',
+        priority: 1,
+        estimateMinutes: 45,
+        dueDate: null,
+        done: false,
+        completedAt: null,
+        createdAt: '2026-08-07T00:00:00.000Z'
+      }
+    ])
+  })
+
+  it('returns the backlog unchanged when nothing needs minting', () => {
+    const backlog = [task()]
+    expect(bankSpilled([], backlog)).toBe(backlog)
   })
 })
 

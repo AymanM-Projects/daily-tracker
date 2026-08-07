@@ -1,4 +1,4 @@
-import type { ScheduleBlock, ScheduleLane } from './types'
+import type { BacklogTask, Priority, ScheduleBlock, ScheduleLane } from './types'
 import type { Anchor } from './schedule'
 import { avoidAnchors } from './schedule'
 import {
@@ -441,6 +441,117 @@ function firstWorkStart(
     .map((b) => blockSpan(b).start)
     .filter((s) => s >= minute)
   return starts.length === 0 ? null : Math.min(...starts)
+}
+
+export interface SpilledWork {
+  name: string
+  minutes: number
+  backlogTaskId: string | null
+  activityId: string | null
+}
+
+export interface SpillResult {
+  blocks: ScheduleBlock[]
+  spilled: SpilledWork[]
+}
+
+/**
+ * Move whatever no longer fits before `dayEnd` off the day.
+ *
+ * A straddling block keeps its head if that head is still worth doing
+ * (`minChunkMinutes`, the same floor `planBacklog` uses, so spill and the
+ * planner agree on what a useless sliver is) and spills only its tail;
+ * otherwise the whole block goes.
+ *
+ * Free and break blocks past the end are **dropped, not spilled** — protected
+ * time is not work, and banking rest as a task to be rescheduled is absurd.
+ */
+export function spill(
+  blocks: ScheduleBlock[],
+  dayEnd: number,
+  options: { minChunk?: number } = {}
+): SpillResult {
+  const minChunk = options.minChunk ?? 30
+  const out: ScheduleBlock[] = []
+  const spilled: SpilledWork[] = []
+
+  for (const block of blocks) {
+    const span = blockSpan(block)
+    // history and anchors stay wherever they are; a skipped block is a record,
+    // not work, so there is nothing in it to move
+    if (span.end <= dayEnd || isImmovable(block) || isTransparent(block)) {
+      out.push(block)
+      continue
+    }
+    if (isConsumable(block)) {
+      if (span.start < dayEnd) out.push({ ...block, end: formatHM(dayEnd) })
+      continue
+    }
+
+    const record = (minutes: number): void => {
+      spilled.push({
+        name: block.name,
+        minutes,
+        backlogTaskId: block.backlogTaskId,
+        activityId: block.activityId
+      })
+    }
+
+    if (dayEnd - span.start >= minChunk) {
+      out.push({
+        ...block,
+        end: formatHM(dayEnd),
+        plannedMinutes: block.plannedMinutes ?? span.end - span.start
+      })
+      record(span.end - dayEnd)
+      continue
+    }
+    record(span.end - span.start)
+  }
+  return { blocks: out.sort(byStart), spilled }
+}
+
+/**
+ * Give spilled work somewhere to live in the backlog.
+ *
+ * **Placed work needs no change at all**, which is the part worth stating
+ * plainly: `planBacklog` derives remaining as estimate minus minutes already
+ * placed, so shortening or dropping a block reopens exactly those minutes on its
+ * own and the planner re-places them. Adding to the estimate here would count
+ * the same work twice.
+ *
+ * A generated activity block is the only real case. It has no `BacklogTask`, and
+ * `planBacklog` has no notion of `Activity` — so without minting one the work
+ * has no representation the planner can move, and spilling would silently lose
+ * it. The minutes come from the block itself, so nothing is being guessed.
+ */
+export function bankSpilled(
+  spilled: SpilledWork[],
+  backlog: BacklogTask[],
+  options: {
+    makeId?: IdFactory
+    now?: string
+    priorityOf?: (activityId: string | null) => Priority
+  } = {}
+): BacklogTask[] {
+  const mint = spilled.filter((s) => s.backlogTaskId === null && s.minutes > 0)
+  if (mint.length === 0) return backlog
+  const makeId = options.makeId ?? ((): string => crypto.randomUUID())
+  const now = options.now ?? new Date().toISOString()
+
+  return [
+    ...backlog,
+    ...mint.map((s) => ({
+      id: makeId(),
+      text: s.name,
+      priority: options.priorityOf?.(s.activityId) ?? (2 as Priority),
+      estimateMinutes: s.minutes,
+      dueDate: null,
+      done: false,
+      completedAt: null,
+      createdAt: now
+    }))
+  ]
 }
 
 export interface TruncateResult {

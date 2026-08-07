@@ -1322,6 +1322,20 @@ button.block:hover {
   color: var(--text-secondary);
 }
 
+/*
+ * A paused day. The timeline desaturates and the now-line freezes at the pause
+ * minute — a stopped clock is the truthful rendering when the day's clock is
+ * stopped, and pretending otherwise would show work advancing that isn't.
+ */
+.timeline.is-paused {
+  filter: saturate(0.35);
+  transition: filter 0.4s ease;
+}
+
+.titlebar.is-paused {
+  background: var(--warn-dim);
+}
+
 /* three choices stacked, not in a row — the window is only 360px wide */
 .stack {
   display: flex;

@@ -16,6 +16,7 @@ import type {
   BlockStatus,
   DateKey,
   DayData,
+  DayPause,
   JournalEntry,
   PrayerSettings,
   Priority,
@@ -25,18 +26,20 @@ import type {
 } from '@shared/types'
 import type { Anchor } from '@shared/schedule'
 import { defaultAppData, getDay } from '@shared/defaults'
-import { blockMinutes } from '@shared/blocks'
+import { blockEnd, blockMinutes } from '@shared/blocks'
 import {
+  bankSpilled,
   extendBlock as extendGeometry,
   removeBlock,
   shiftAfter,
+  spill,
   truncate as truncateGeometry
 } from '@shared/reschedule'
 import { elapsedMinutes } from '@shared/timer'
 import { pendingRules } from '@shared/recurrence'
 import { PLAN_DEFAULTS, planBacklog } from '@shared/plan'
 import { prayerTimes } from '@shared/prayer'
-import { minutesNow, shiftDateKey, todayKey } from '@shared/time'
+import { minutesNow, parseHM, shiftDateKey, todayKey } from '@shared/time'
 
 export interface State {
   data: AppData
@@ -117,6 +120,9 @@ export type Action =
       actualMinutes: number
       fill: 'free' | 'pull'
     }
+  /** "something came up" — freeze the day and the running block together */
+  | { type: 'pauseDay'; date: DateKey }
+  | { type: 'resumeDay' }
 
 function withDay(data: AppData, date: DateKey, mutate: (day: DayData) => DayData): AppData {
   return { ...data, days: { ...data.days, [date]: mutate(getDay(data, date)) } }
@@ -277,12 +283,42 @@ function releaseTask(data: AppData, taskId: string, from: DateKey): AppData {
   return changed ? { ...data, days: nextDays } : data
 }
 
+/** Quitting while paused and reopening days later must not drag the day by thousands of minutes. */
+const MAX_PAUSE_MINUTES = 8 * 60
+
+const minutesOfISO = (iso: string): number => {
+  const d = new Date(iso)
+  return d.getHours() * 60 + d.getMinutes()
+}
+
+/**
+ * How long the pause has run, or null if it is no longer a pause we may act on.
+ *
+ * A pause is a **within-day** device. Crossing midnight or running absurdly long
+ * both mean "clear it, shift nothing" — each otherwise moves the day by hundreds
+ * of minutes with no undo, so both are checked on `hydrate` and `setActiveDate`
+ * as well as on resume.
+ */
+function pauseElapsed(pause: DayPause | null): number | null {
+  if (!pause) return null
+  if (pause.dateKey !== todayKey()) return null
+  const minutes = Math.round((Date.now() - Date.parse(pause.pausedAt)) / 60_000)
+  if (!Number.isFinite(minutes) || minutes <= 0 || minutes > MAX_PAUSE_MINUTES) return null
+  return minutes
+}
+
+/** Drop a pause that is no longer actionable, without shifting anything. */
+function clearStalePause(data: AppData): AppData {
+  if (!data.dayPause) return data
+  return pauseElapsed(data.dayPause) === null ? { ...data, dayPause: null } : data
+}
+
 function reducer(state: State, action: Action): State {
   switch (action.type) {
     case 'hydrate':
       return {
         ...state,
-        data: applyRecurring(action.data, state.activeDate),
+        data: clearStalePause(applyRecurring(action.data, state.activeDate)),
         hydrated: true
       }
     case 'setActiveDate':
@@ -291,7 +327,7 @@ function reducer(state: State, action: Action): State {
       return {
         ...state,
         activeDate: action.date,
-        data: applyRecurring(state.data, action.date)
+        data: clearStalePause(applyRecurring(state.data, action.date))
       }
     case 'addActivity': {
       const activity: Activity = {
@@ -605,6 +641,63 @@ function reducer(state: State, action: Action): State {
       // pulling opens time at the tail, so the backlog gets another look;
       // protecting the span deliberately does not
       return { ...state, data: action.fill === 'pull' ? replan(next, action.date) : next }
+    }
+    case 'pauseDay': {
+      const t = state.data.activeTimer
+      const running = t !== null && !t.paused
+      // Both facts land in ONE commit. Two dispatches would mean two renders and
+      // two whole-document writes, and a block timer left running through the
+      // freeze would record the pause as work.
+      return {
+        ...state,
+        data: {
+          ...state.data,
+          dayPause: {
+            dateKey: action.date,
+            pausedAt: new Date().toISOString(),
+            pausedTimer: running
+          },
+          activeTimer: running
+            ? {
+                ...t,
+                accumulatedMs: t.accumulatedMs + Math.max(0, Date.now() - Date.parse(t.startedAt)),
+                paused: true
+              }
+            : t
+        }
+      }
+    }
+    case 'resumeDay': {
+      const pause = state.data.dayPause
+      if (!pause) return state
+      const t = state.data.activeTimer
+      const activeTimer =
+        pause.pausedTimer && t ? { ...t, startedAt: new Date().toISOString(), paused: false } : t
+      const cleared = { ...state.data, dayPause: null, activeTimer }
+
+      const elapsed = pauseElapsed(pause)
+      const day = getDay(state.data, pause.dateKey)
+      if (elapsed === null || !day.schedule) return { ...state, data: cleared }
+
+      const dayEnd = parseHM(state.data.settings.dayEnd)
+      // free and break blocks absorb first, so a short pause during free time
+      // costs the rest of the day nothing
+      const shifted = shiftAfter(day.schedule, minutesOfISO(pause.pausedAt), elapsed)
+      const { blocks, spilled } = spill(
+        shifted.map((b) => (b.kind === 'activity' ? { ...b, overflow: blockEnd(b) > dayEnd } : b)),
+        dayEnd,
+        { minChunk: PLAN_DEFAULTS.minChunkMinutes }
+      )
+      const backlog = bankSpilled(spilled, cleared.backlog, {
+        priorityOf: (id) => cleared.activities.find((a) => a.id === id)?.priority ?? 2
+      })
+
+      const next = withDay({ ...cleared, backlog }, pause.dateKey, (d) => ({
+        ...d,
+        schedule: blocks
+      }))
+      // inline rather than a second dispatch, following addBacklogTask
+      return { ...state, data: replan(next, pause.dateKey) }
     }
     case 'markBlockPrompted':
       return {

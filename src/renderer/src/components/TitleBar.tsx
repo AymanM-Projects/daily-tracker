@@ -9,6 +9,7 @@ function TitleBar(): React.JSX.Element {
   const { state, settings, dispatch } = useData()
   const timer = useTimer()
   const pinned = settings.alwaysOnTop
+  const paused = state.data.dayPause !== null
 
   const togglePin = (): void => {
     const next = !pinned
@@ -17,9 +18,35 @@ function TitleBar(): React.JSX.Element {
   }
 
   return (
-    <header className="titlebar">
+    <header className={paused ? 'titlebar is-paused' : 'titlebar'}>
       <AnimatePresence mode="wait" initial={false}>
-        {timer ? (
+        {/* paused outranks the timer, which outranks the date: a frozen day is a
+            global mode and the title bar is the only surface that survives a tab
+            switch, so it has to say so */}
+        {paused ? (
+          <motion.div
+            key="paused"
+            className="tb-timer"
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 6 }}
+            transition={{ duration: 0.18 }}
+          >
+            <span className="tb-clock paused">Paused</span>
+            <span className="tb-block-name">Day on hold</span>
+            <div className="tb-actions">
+              <motion.button
+                className="tb-btn done"
+                onClick={() => dispatch({ type: 'resumeDay' })}
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+                aria-label="Resume the day"
+              >
+                <PlayIcon size={13} />
+              </motion.button>
+            </div>
+          </motion.div>
+        ) : timer ? (
           <motion.div
             key="timer"
             className="tb-timer"
@@ -79,6 +106,19 @@ function TitleBar(): React.JSX.Element {
           </motion.span>
         )}
       </AnimatePresence>
+      {!paused && (
+        <motion.button
+          className="pin-btn"
+          onClick={() => dispatch({ type: 'pauseDay', date: state.activeDate })}
+          whileHover={{ scale: 1.08 }}
+          whileTap={{ scale: 0.92 }}
+          transition={{ type: 'spring', stiffness: 500, damping: 25 }}
+          aria-label="Pause the day"
+          title="Something came up — freeze the day"
+        >
+          <PauseIcon size={15} />
+        </motion.button>
+      )}
       <motion.button
         className={pinned ? 'pin-btn active' : 'pin-btn'}
         onClick={togglePin}
