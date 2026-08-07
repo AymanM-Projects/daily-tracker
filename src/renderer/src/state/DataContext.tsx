@@ -26,7 +26,12 @@ import type {
 import type { Anchor } from '@shared/schedule'
 import { defaultAppData, getDay } from '@shared/defaults'
 import { blockMinutes } from '@shared/blocks'
-import { extendBlock as extendGeometry } from '@shared/reschedule'
+import {
+  extendBlock as extendGeometry,
+  removeBlock,
+  shiftAfter,
+  truncate as truncateGeometry
+} from '@shared/reschedule'
 import { elapsedMinutes } from '@shared/timer'
 import { pendingRules } from '@shared/recurrence'
 import { PLAN_DEFAULTS, planBacklog } from '@shared/plan'
@@ -101,6 +106,17 @@ export type Action =
   | { type: 'bankBlockTime'; date: DateKey; blockId: string; minutes: number }
   /** the prompt was answered or explicitly waived; a dismissal never lands here */
   | { type: 'markBlockPrompted'; date: DateKey; blockId: string }
+  /**
+   * Finished early. `fill: 'free'` protects the released span; `fill: 'pull'`
+   * hands it back to the day and drags the rest of it earlier.
+   */
+  | {
+      type: 'truncateBlock'
+      date: DateKey
+      blockId: string
+      actualMinutes: number
+      fill: 'free' | 'pull'
+    }
 
 function withDay(data: AppData, date: DateKey, mutate: (day: DayData) => DayData): AppData {
   return { ...data, days: { ...data.days, [date]: mutate(getDay(data, date)) } }
@@ -563,6 +579,32 @@ function reducer(state: State, action: Action): State {
         ]
       }
       return { ...state, data: replan({ ...stamped, backlog }, action.date) }
+    }
+    case 'truncateBlock': {
+      const day = getDay(state.data, action.date)
+      if (!day.schedule) return state
+      const cut = truncateGeometry(day.schedule, action.blockId, action.actualMinutes)
+
+      // 'free' protects the span: without it the very next replan reclaims the
+      // minutes just liberated, and "I finished early" silently resolves to
+      // "here is more work".
+      let blocks = cut.blocks
+      if (action.fill === 'pull' && cut.freeBlockId !== null) {
+        const releasedAt = minutesNow()
+        blocks = shiftAfter(
+          removeBlock(blocks, cut.freeBlockId, { vacate: 'gap' }),
+          releasedAt,
+          -cut.freedMinutes
+        )
+      }
+
+      const stamped = withDay(state.data, action.date, (d) => ({ ...d, schedule: blocks })).days
+      const next = withDay({ ...state.data, days: stamped }, action.date, (d) =>
+        mapBlock(d, action.blockId, (b) => ({ ...b, promptedAt: new Date().toISOString() }))
+      )
+      // pulling opens time at the tail, so the backlog gets another look;
+      // protecting the span deliberately does not
+      return { ...state, data: action.fill === 'pull' ? replan(next, action.date) : next }
     }
     case 'markBlockPrompted':
       return {

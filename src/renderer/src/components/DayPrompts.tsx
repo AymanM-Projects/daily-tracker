@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import type { ScheduleBlock } from '@shared/types'
+import { blockSpan } from '@shared/blocks'
 import { formatClock, formatMinutes } from '@shared/time'
 import { useData } from '../state/DataContext'
 import { useEndedBlocks } from '../hooks/useEndedBlocks'
 import Sheet from './Sheet'
-import { CheckIcon, ClockIcon } from './icons'
+import { CheckIcon, ClockIcon, PlayIcon } from './icons'
 
 const MORE_OPTIONS = [10, 15, 30]
 
@@ -146,16 +147,96 @@ function BlockPrompt({ block, onDone, onDefer }: PromptProps): React.JSX.Element
 }
 
 /**
+ * Finished ahead of the slot. The released span becomes protected free time by
+ * default, because the alternative — leaving a bare gap — means the next replan
+ * reclaims those minutes and "I finished early" silently resolves to "here is
+ * more work".
+ */
+function EarlyFinishPrompt({
+  block,
+  onDone
+}: {
+  block: ScheduleBlock
+  onDone: () => void
+}): React.JSX.Element {
+  const { state, dispatch } = useData()
+  const date = state.activeDate
+  const span = blockSpan(block)
+  const freed = span.end - (span.start + (block.actualMinutes ?? 0))
+
+  const choose = (fill: 'free' | 'pull', thenStart?: boolean): void => {
+    dispatch({
+      type: 'truncateBlock',
+      date,
+      blockId: block.id,
+      actualMinutes: block.actualMinutes ?? 0,
+      fill
+    })
+    if (thenStart) {
+      // deliberately a separate decision: pulling the day earlier and choosing
+      // to start the next thing right now are two different intents
+      const next = (state.data.days[date]?.schedule ?? [])
+        .filter((b) => b.kind === 'activity' && b.status === 'planned' && b.id !== block.id)
+        .sort((a, b) => blockSpan(a).start - blockSpan(b).start)[0]
+      if (next) dispatch({ type: 'startTimer', date, blockId: next.id })
+    }
+    onDone()
+  }
+
+  return (
+    <Sheet
+      title={`${formatMinutes(freed)} back`}
+      subtitle={`You finished ${block.name} early. What should happen to the time?`}
+      className="sheet-prompt"
+      dismissOnScrim={false}
+      // dismissing DOES settle this one: it is an offer, and declining an offer
+      // is a real answer. The mirror image of the completion prompt's defer.
+      onClose={() => {
+        dispatch({ type: 'markBlockPrompted', date, blockId: block.id })
+        onDone()
+      }}
+    >
+      <div className="stack">
+        <button className="sheet-btn primary" autoFocus onClick={() => choose('free')}>
+          <CheckIcon size={14} />
+          Keep it free
+        </button>
+        <button className="sheet-btn" onClick={() => choose('pull')}>
+          <ClockIcon size={14} />
+          Pull the rest of the day earlier
+        </button>
+        <button className="sheet-btn" onClick={() => choose('pull', true)}>
+          <PlayIcon size={14} />
+          Start the next task now
+        </button>
+      </div>
+    </Sheet>
+  )
+}
+
+/**
  * Mounted outside the pane `AnimatePresence` in `App.tsx`: panes unmount on tab
  * switch, and a prompt has to survive that.
  */
 function DayPrompts(): React.JSX.Element {
-  const { current, defer } = useEndedBlocks()
+  const { current, earlyFinish, defer } = useEndedBlocks()
   const [answered, setAnswered] = useState<string | null>(null)
+
+  // an early finish is about the block you just closed, so it outranks a
+  // question about one that merely ran out
+  const showEarly = earlyFinish && earlyFinish.id !== answered
+  const showEnded = !showEarly && current && current.id !== answered
 
   return (
     <AnimatePresence>
-      {current && current.id !== answered && (
+      {showEarly && (
+        <EarlyFinishPrompt
+          key={`early-${earlyFinish.id}`}
+          block={earlyFinish}
+          onDone={() => setAnswered(earlyFinish.id)}
+        />
+      )}
+      {showEnded && (
         <BlockPrompt
           key={current.id}
           block={current}

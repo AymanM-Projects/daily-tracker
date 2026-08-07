@@ -15,6 +15,8 @@ export interface EndedBlocks {
   current: ScheduleBlock | null
   /** blocks that ended too long ago to interrupt over — shown as a catch-up strip */
   stale: ScheduleBlock[]
+  /** a block finished ahead of its slot, with time still left in it */
+  earlyFinish: ScheduleBlock | null
   /** hide one for ten minutes without writing anything */
   defer: (id: string) => void
 }
@@ -51,12 +53,22 @@ export function useEndedBlocks(): EndedBlocks {
   const schedule = today.schedule
   const hydrated = state.hydrated
 
-  const { current, stale } = useMemo(() => {
+  const { current, stale, earlyFinish } = useMemo(() => {
     // nothing is asked while the day is frozen, or while a timer runs on some
     // other block — that block is the user's declared attention right now
     if (!hydrated || paused || !schedule) {
-      return { current: null, stale: [] as ScheduleBlock[] }
+      return { current: null, stale: [] as ScheduleBlock[], earlyFinish: null }
     }
+
+    // A block settled ahead of its slot with time still to run. Derived like
+    // everything else here: answering stamps promptedAt, which removes it.
+    const early =
+      schedule.find((b) => {
+        if (b.kind !== 'activity' || b.status !== 'done' || b.promptedAt !== null) return false
+        if (b.actualMinutes === null) return false
+        const span = blockSpan(b)
+        return span.end > nowMin && span.start + b.actualMinutes < span.end
+      }) ?? null
 
     const candidates = schedule
       .filter((b) => b.kind === 'activity' && b.status === 'planned' && b.promptedAt === null)
@@ -68,9 +80,10 @@ export function useEndedBlocks(): EndedBlocks {
     const fresh = candidates.filter((b) => nowMin - blockSpan(b).end <= PROMPT_WINDOW_MINUTES)
     return {
       current: fresh[0] ?? null,
-      stale: candidates.filter((b) => nowMin - blockSpan(b).end > PROMPT_WINDOW_MINUTES)
+      stale: candidates.filter((b) => nowMin - blockSpan(b).end > PROMPT_WINDOW_MINUTES),
+      earlyFinish: early
     }
   }, [hydrated, paused, schedule, timer, nowMin, deferred])
 
-  return { current, stale, defer }
+  return { current, stale, earlyFinish, defer }
 }

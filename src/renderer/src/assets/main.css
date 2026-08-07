@@ -1322,6 +1322,17 @@ button.block:hover {
   color: var(--text-secondary);
 }
 
+/* three choices stacked, not in a row — the window is only 360px wide */
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.stack .sheet-btn {
+  justify-content: flex-start;
+}
+
 /* --- block editing (behind a disclosure, so it never crowds the default face) --- */
 
 .disclosure {
