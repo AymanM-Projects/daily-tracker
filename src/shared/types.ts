@@ -83,14 +83,25 @@ export interface JournalEntry {
 
 export type ScheduleLane = 'focus' | 'parallel'
 
-export type BlockStatus = 'planned' | 'done' | 'skipped'
+/**
+ * 'anchor' is a fixed-time obligation (a prayer) that activities route around.
+ * 'free' is protected buffer time: the planner may never place work into it,
+ * but it is the first place an overrun or an extension borrows minutes from.
+ */
+export type BlockKind = 'activity' | 'break' | 'anchor' | 'free'
+
+/**
+ * 'partial' means the slot was worked but the task isn't finished. It exists
+ * because the alternative — recording an unfinished task as 'done' — would make
+ * the auto-journal claim work was completed when it wasn't.
+ */
+export type BlockStatus = 'planned' | 'done' | 'skipped' | 'partial'
 
 export interface ScheduleBlock {
   id: string
-  /** 'anchor' is a fixed-time obligation (a prayer) that activities route around */
-  kind: 'activity' | 'break' | 'anchor'
+  kind: BlockKind
   lane: ScheduleLane
-  activityId: string | null // null for breaks, anchors and backlog work
+  activityId: string | null // null for breaks, anchors, free time and backlog work
   /** set when this block is placed work from the backlog rather than a generated activity */
   backlogTaskId: string | null
   name: string // snapshot of the name at generation time
@@ -99,6 +110,24 @@ export interface ScheduleBlock {
   overflow: boolean // true if the block runs past settings.dayEnd
   status: BlockStatus
   actualMinutes: number | null // measured by the timer or typed in — never inferred
+  /**
+   * True when the user created or edited this block by hand. Regeneration is
+   * handed these as anchors and flows around them, so pressing Regenerate never
+   * silently discards a hand edit.
+   */
+  manual: boolean
+  /**
+   * ISO stamp of when the end-of-block prompt was answered or explicitly waived.
+   * Deferring a prompt is held in memory and never written here — a dismissal
+   * must never be readable as an answer.
+   */
+  promptedAt: string | null
+  /**
+   * The length this block was planned for, recorded only when a mutation moves
+   * the geometry away from the plan (an early finish, an extension, a spill).
+   * null means the geometry still IS the plan.
+   */
+  plannedMinutes: number | null
 }
 
 /**
@@ -111,6 +140,22 @@ export interface ActiveTimer {
   startedAt: string // ISO, start of the current running segment
   accumulatedMs: number // banked from previous segments
   paused: boolean
+}
+
+/**
+ * The day-wide freeze — "something came up". Mirrors ActiveTimer: at most one at
+ * a time, carrying its own dateKey so the main process can find it without
+ * knowing which day is active. It lives here rather than on DayData because a
+ * pause is a live condition, not a property of the day's record.
+ *
+ * Only the start is stored. Resuming shifts the rest of the day by
+ * (now - pausedAt) and clears the pause in one step, so nothing accumulates.
+ */
+export interface DayPause {
+  dateKey: DateKey
+  pausedAt: string // ISO
+  /** true when pausing the day also paused a running block timer, so resume restores it */
+  pausedTimer: boolean
 }
 
 export type PrayerName = 'Fajr' | 'Dhuhr' | 'Asr' | 'Maghrib' | 'Isha'
@@ -144,6 +189,16 @@ export interface Settings {
   breaksEnabled: boolean
   breakMinutes: number
   alwaysOnTop: boolean
+  /**
+   * Protected free time. Deliberately distinct from breaks: a break is a short
+   * gap BETWEEN two activities, a free buffer is a longer protected block after
+   * a given amount of accumulated focus work. It also mops up whatever is left
+   * at the end of the day, so leftover time is visible rather than implied — and
+   * therefore safe from the backlog planner, which fills anything it can see.
+   */
+  freeBufferEnabled: boolean
+  freeBufferMinutes: number // length of each inserted buffer
+  freeBufferEveryMinutes: number // insert one after this much focus work
 }
 
 export interface DayData {
@@ -186,7 +241,7 @@ export interface WidgetBlock {
   name: string
   lane: ScheduleLane
   /** anchors flow through too — during Maghrib, "now" should say Maghrib */
-  kind: 'activity' | 'break' | 'anchor'
+  kind: BlockKind
   start: string // 'HH:mm'
   end: string // 'HH:mm'
   /** whole minutes until this block ends (if running) or starts (if upcoming) */
@@ -236,8 +291,9 @@ export interface BacklogTask {
 }
 
 export interface AppData {
-  version: 6
+  version: 7
   activeTimer: ActiveTimer | null
+  dayPause: DayPause | null
   projects: Project[]
   activitySets: ActivitySet[]
   activities: Activity[]

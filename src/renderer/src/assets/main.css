@@ -1070,6 +1070,55 @@ button.block:hover {
   padding: 0 8px;
 }
 
+/*
+ * Protected free time. Achromatic on purpose — the absence of hue is what marks
+ * it as "not work". The hatch separates it from .break (dashed, transparent
+ * filler the generator inserted) and the SOLID left bar from .anchor (dashed,
+ * not yours to move). Free blocks stay tappable: they are where you put things.
+ */
+.block.free {
+  background: var(--free-hatch), var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--text-muted);
+  color: var(--text-muted);
+}
+
+.block.free .block-name {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.block.free .block-time {
+  color: var(--text-muted);
+}
+
+/*
+ * The 22px floor draws a short block taller than its own span, so it laps the
+ * block below — whose `top` is still exact. Dropping the floor to 14px and
+ * laying the content out in a single row keeps a 5-minute block readable and
+ * keeps the timeline honest about how little time it actually occupies.
+ */
+.block.tiny {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding: 0 7px;
+  line-height: 1;
+}
+
+.block.tiny .block-name {
+  font-size: 10px;
+}
+
+.block.tiny .block-time {
+  font-size: 8.5px;
+}
+
+.block.tiny .block-flags {
+  position: static;
+  margin-left: auto;
+}
+
 .block.overflow {
   border-color: var(--warn);
   border-left-color: var(--warn);

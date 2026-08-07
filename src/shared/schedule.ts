@@ -1,4 +1,5 @@
 import type { Activity, ScheduleBlock, ScheduleLane, Settings } from './types'
+import { makeFreeBlock } from './blocks'
 import { formatHM, parseHM } from './time'
 
 export interface ScheduleResult {
@@ -26,7 +27,7 @@ export interface GenerateOptions {
  * Push `cursor` past any anchor that a block of `duration` would collide with.
  * Loops because stepping over one anchor can land on the next.
  */
-function avoidAnchors(cursor: number, duration: number, anchors: Anchor[]): number {
+export function avoidAnchors(cursor: number, duration: number, anchors: Anchor[]): number {
   let at = cursor
   let moved = true
   while (moved) {
@@ -59,10 +60,20 @@ function fillLane(
   const dayStart = parseHM(settings.dayStart)
   const dayEnd = parseHM(settings.dayEnd)
   const withBreaks = settings.breaksEnabled && lane === 'focus'
+  // Focus lane only. The parallel lane is unattended work — protected rest from
+  // a 3D print means nothing, and free blocks there would tell the backlog
+  // planner the whole day is occupied.
+  const withFree =
+    settings.freeBufferEnabled &&
+    lane === 'focus' &&
+    settings.freeBufferMinutes > 0 &&
+    settings.freeBufferEveryMinutes > 0
   const sorted = sortForSchedule(activities)
   const blocks: ScheduleBlock[] = []
   const unscheduled: string[] = []
   let cursor = dayStart
+  /** focus minutes worked since the last real rest — what a buffer comes due after */
+  let sinceRest = 0
 
   for (let i = 0; i < sorted.length; i++) {
     const activity = sorted[i]
@@ -81,17 +92,44 @@ function fillLane(
       end: formatHM(end),
       overflow,
       status: 'planned',
-      actualMinutes: null
+      actualMinutes: null,
+      manual: false,
+      promptedAt: null,
+      plannedMinutes: null
     })
     if (overflow) {
       unscheduled.push(...sorted.slice(i + 1).map((a) => a.name))
       break
     }
     cursor = end
-    const remaining = i < sorted.length - 1
+    sinceRest += activity.durationMinutes
+    // nothing is ever inserted after the last activity
+    if (i === sorted.length - 1) break
+
+    // An anchor sitting on this boundary IS the rest. Salah interrupts the flow
+    // on its own, so the buffer clock starts over and nothing is stacked on top
+    // of it. Probing a single minute asks exactly "is the cursor at or inside an
+    // anchor" without borrowing either filler's length.
+    if (withFree && avoidAnchors(cursor, 1, anchors) !== cursor) {
+      sinceRest = 0
+      continue
+    }
+
+    // A due buffer REPLACES the break at this boundary rather than stacking on
+    // it — two rests back to back is one rest. It is skipped, not shifted, if an
+    // anchor is close enough that it would not fit.
+    const bufferDue = withFree && sinceRest >= settings.freeBufferEveryMinutes
+    const bufferClear = avoidAnchors(cursor, settings.freeBufferMinutes, anchors) === cursor
+    if (bufferDue && bufferClear && cursor + settings.freeBufferMinutes <= dayEnd) {
+      blocks.push(makeFreeBlock(lane, cursor, cursor + settings.freeBufferMinutes))
+      cursor += settings.freeBufferMinutes
+      sinceRest = 0
+      continue
+    }
+
     // a break is skipped rather than shifted when an anchor already interrupts here
     const breakClear = avoidAnchors(cursor, settings.breakMinutes, anchors) === cursor
-    if (withBreaks && remaining && breakClear && cursor + settings.breakMinutes <= dayEnd) {
+    if (withBreaks && breakClear && cursor + settings.breakMinutes <= dayEnd) {
       blocks.push({
         id: crypto.randomUUID(),
         kind: 'break',
@@ -103,12 +141,20 @@ function fillLane(
         end: formatHM(cursor + settings.breakMinutes),
         overflow: false,
         status: 'planned',
-        actualMinutes: null
+        actualMinutes: null,
+        manual: false,
+        promptedAt: null,
+        plannedMinutes: null
       })
       cursor += settings.breakMinutes
     }
   }
 
+  // Deliberately NOT mopping the leftover tail of the day into free blocks.
+  // `plan.ts` treats every focus-lane block as occupied regardless of kind, so
+  // protecting the tail would mean the backlog planner could never place work on
+  // a generated day. Buffers are rest earned between tasks; the tail is simply
+  // unplanned, and staying unplanned is what keeps the backlog usable.
   return { blocks, unscheduled }
 }
 
@@ -142,7 +188,10 @@ export function generateSchedule(
     end: formatHM(a.end),
     overflow: false,
     status: 'planned' as const,
-    actualMinutes: null
+    actualMinutes: null,
+    manual: false,
+    promptedAt: null,
+    plannedMinutes: null
   }))
 
   if (activities.length === 0) return { blocks: anchorBlocks, unscheduled: [] }

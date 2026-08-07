@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { ScheduleBlock } from '@shared/types'
 import { elapsedMs } from '@shared/timer'
-import { parseHM } from '@shared/time'
+import { blockMinutes } from '@shared/blocks'
 import { getDay } from '@shared/defaults'
 import { useData } from '../state/DataContext'
 
@@ -18,9 +18,7 @@ export interface TimerView {
 }
 
 function plannedMsOf(block: ScheduleBlock): number {
-  let mins = parseHM(block.end) - parseHM(block.start)
-  if (mins <= 0) mins += 1440 // block wrapped past midnight
-  return mins * 60_000
+  return blockMinutes(block) * 60_000
 }
 
 /**

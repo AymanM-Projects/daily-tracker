@@ -1,24 +1,14 @@
 import type { AppData, ScheduleBlock, ScheduleLane, WidgetBlock, WidgetSummary } from './types'
 import { getDay } from './defaults'
+import { blockEnd } from './blocks'
 import { formatDateLabel, minutesNow, parseHM, todayKey } from './time'
 import { elapsedMs, formatDuration } from './timer'
 
 const LANES: ScheduleLane[] = ['focus', 'parallel']
 
-/**
- * Minutes since midnight for a block's end. Overflow blocks can be generated
- * past midnight, where `formatHM` has wrapped the value below the start —
- * unwrap it so the block still reads as forward-going.
- */
-function endMinutes(block: ScheduleBlock): number {
-  const start = parseHM(block.start)
-  const end = parseHM(block.end)
-  return end <= start ? end + 1440 : end
-}
-
 function toWidgetBlock(block: ScheduleBlock, nowMin: number, running: boolean): WidgetBlock {
   const start = parseHM(block.start)
-  const end = endMinutes(block)
+  const end = blockEnd(block)
   const span = Math.max(1, end - start)
   return {
     id: block.id,
@@ -40,6 +30,11 @@ function toWidgetBlock(block: ScheduleBlock, nowMin: number, running: boolean): 
  *
  * Done and skipped blocks are excluded everywhere: once a block is settled it
  * is history, and showing it as current would misreport the day.
+ *
+ * Protected free time is excluded too. The popover answers "what am I supposed
+ * to be doing", and free time is the absence of an obligation — announcing it as
+ * the current block, or counting down to the end of your rest in the menu bar,
+ * gets that exactly backwards.
  */
 export function buildWidgetSummary(
   data: AppData,
@@ -50,12 +45,12 @@ export function buildWidgetSummary(
   const day = getDay(data, key)
   const nowMin = minutesNow(at)
   const schedule = day.schedule ?? []
-  const open = schedule.filter((b) => b.status === 'planned')
+  const open = schedule.filter((b) => b.status === 'planned' && b.kind !== 'free')
 
   const now: WidgetBlock[] = []
   for (const lane of LANES) {
     const running = open.find(
-      (b) => b.lane === lane && parseHM(b.start) <= nowMin && nowMin < endMinutes(b)
+      (b) => b.lane === lane && parseHM(b.start) <= nowMin && nowMin < blockEnd(b)
     )
     if (running) now.push(toWidgetBlock(running, nowMin, true))
   }

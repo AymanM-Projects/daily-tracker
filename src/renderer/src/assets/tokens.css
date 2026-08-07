@@ -30,6 +30,17 @@
   --warn: #fbbf24;
   --warn-dim: rgba(251, 191, 36, 0.14);
   /*
+   * Protected free time is texture, not colour. Cyan, fuchsia, violet, amber and
+   * rose all already mean something specific here, so a sixth hue would compete
+   * with the lanes instead of standing apart from them. The hatch says "held
+   * open" without claiming a place in the palette.
+   */
+  --free-hatch: repeating-linear-gradient(
+    -45deg,
+    rgba(168, 180, 196, 0.1) 0 5px,
+    rgba(168, 180, 196, 0) 5px 11px
+  );
+  /*
    * Bundled from @fontsource, never fetched: the CSP is default-src 'self' and
    * the app has to work offline. The system stack stays behind them so a failed
    * load degrades to the previous look rather than to Times.

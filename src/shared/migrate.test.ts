@@ -270,3 +270,107 @@ describe('migrate v3 -> v4', () => {
     expect(out.days['2026-08-06'].recurringApplied).toEqual([])
   })
 })
+
+describe('migrate v6 -> v7', () => {
+  function v6Fixture(): Record<string, unknown> {
+    return {
+      version: 6,
+      activeTimer: null,
+      projects: [],
+      activitySets: [],
+      activities: [],
+      recurringTasks: [],
+      backlog: [],
+      settings: {
+        dayStart: '08:30',
+        dayEnd: '22:00',
+        breaksEnabled: true,
+        breakMinutes: 15,
+        alwaysOnTop: true
+      },
+      days: {
+        '2026-08-06': {
+          checklist: [],
+          journal: [],
+          unscheduled: null,
+          activitySetId: null,
+          recurringApplied: [],
+          schedule: [
+            {
+              id: 'b1',
+              kind: 'activity',
+              lane: 'focus',
+              activityId: 'a1',
+              backlogTaskId: null,
+              name: 'Essay',
+              start: '09:00',
+              end: '10:00',
+              overflow: false,
+              status: 'planned',
+              actualMinutes: null
+            }
+          ]
+        }
+      }
+    }
+  }
+
+  it('backfills the new block fields', () => {
+    const block = migrate(v6Fixture()).days['2026-08-06'].schedule![0]
+    expect(block.manual).toBe(false)
+    expect(block.promptedAt).toBeNull()
+    expect(block.plannedMinutes).toBeNull()
+  })
+
+  it('keeps everything the block already had', () => {
+    const block = migrate(v6Fixture()).days['2026-08-06'].schedule![0]
+    expect(block.name).toBe('Essay')
+    expect(block.start).toBe('09:00')
+    expect(block.end).toBe('10:00')
+    expect(block.kind).toBe('activity')
+  })
+
+  it('adds the day pause slot', () => {
+    expect(migrate(v6Fixture()).dayPause).toBeNull()
+  })
+
+  it('adds the free-buffer settings without disturbing the existing window', () => {
+    const settings = migrate(v6Fixture()).settings
+    expect(settings.freeBufferEnabled).toBe(true)
+    expect(settings.freeBufferMinutes).toBe(30)
+    expect(settings.freeBufferEveryMinutes).toBe(120)
+    // the user's own window and break length must survive untouched
+    expect(settings.dayStart).toBe('08:30')
+    expect(settings.dayEnd).toBe('22:00')
+    expect(settings.breakMinutes).toBe(15)
+    expect(settings.alwaysOnTop).toBe(true)
+  })
+
+  it('creates no free blocks retroactively', () => {
+    // regeneration is manual, so an already-generated day must keep the exact
+    // shape the user last saw until they press the button themselves
+    const schedule = migrate(v6Fixture()).days['2026-08-06'].schedule!
+    expect(schedule).toHaveLength(1)
+    expect(schedule.some((b) => b.kind === 'free')).toBe(false)
+  })
+
+  it('leaves a null schedule null', () => {
+    const raw = v6Fixture() as { days: Record<string, Record<string, unknown>> }
+    raw.days['2026-08-06'].schedule = null
+    expect(migrate(raw as never).days['2026-08-06'].schedule).toBeNull()
+  })
+
+  it('survives a schedule that is not an array', () => {
+    const raw = v6Fixture() as { days: Record<string, Record<string, unknown>> }
+    raw.days['2026-08-06'].schedule = 'corrupt' as never
+    expect(() => migrate(raw as never)).not.toThrow()
+  })
+
+  it('writes no undefined into the document', () => {
+    expect(JSON.stringify(migrate(v6Fixture()))).not.toContain('undefined')
+  })
+
+  it('reaches the current version', () => {
+    expect(migrate(v6Fixture()).version).toBe(CURRENT_VERSION)
+  })
+})

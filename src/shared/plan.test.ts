@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { BacklogTask, ScheduleBlock, Settings } from './types'
 import { planBacklog, type PlanInput, type PlanResult } from './plan'
+import { blockMinutes } from './blocks'
 
 const DAY1 = '2026-08-06'
 const DAY2 = '2026-08-07'
@@ -13,6 +14,9 @@ function settings(over: Partial<Settings> = {}): Settings {
     breaksEnabled: false,
     breakMinutes: 10,
     alwaysOnTop: false,
+    freeBufferEnabled: false,
+    freeBufferMinutes: 30,
+    freeBufferEveryMinutes: 120,
     ...over
   }
 }
@@ -44,6 +48,9 @@ function block(over: Partial<ScheduleBlock> = {}): ScheduleBlock {
     overflow: false,
     status: 'planned',
     actualMinutes: null,
+    manual: false,
+    promptedAt: null,
+    plannedMinutes: null,
     ...over
   }
 }
@@ -214,5 +221,72 @@ describe('planBacklog horizon', () => {
     const r = run({ backlog: [task()], settings: settings({ dayStart: '17:00', dayEnd: '09:00' }) })
     expect(r.placements).toEqual({})
     expect(r.unplaced).toEqual(['Essay'])
+  })
+})
+
+describe('skipped, free and parallel-lane blocks', () => {
+  it('does not count a skipped block as work already done', () => {
+    // the whole 60m estimate must still be placed: skipping bought no time, and
+    // counting it would silently delete the task instead of deferring it
+    const r = run({
+      backlog: [task({ estimateMinutes: 60 })],
+      days: {
+        [DAY1]: [
+          block({ id: 'x', backlogTaskId: 't1', start: '09:00', end: '10:00', status: 'skipped' })
+        ]
+      }
+    })
+    const placed = Object.values(r.placements)
+      .flat()
+      .reduce((sum, b) => sum + blockMinutes(b), 0)
+    expect(placed).toBe(60)
+  })
+
+  it('still treats the skipped slot as occupied, so the work lands on a later day', () => {
+    // "something came up" means you are busy now, not that the slot is free —
+    // freeing it would drop the same task straight back into the same hour
+    const r = run({
+      backlog: [task({ estimateMinutes: 60 })],
+      days: {
+        [DAY1]: [
+          block({ id: 'x', backlogTaskId: 't1', start: '09:00', end: '10:00', status: 'skipped' }),
+          block({ id: 'y', start: '10:00', end: '17:00' })
+        ]
+      }
+    })
+    expect(lines(r)).toEqual([`${DAY2} 09:00-10:00 Essay`])
+  })
+
+  it('never places work into protected free time', () => {
+    const r = run({
+      backlog: [task({ estimateMinutes: 60 })],
+      days: {
+        [DAY1]: [block({ id: 'f', kind: 'free', name: 'Free', start: '09:00', end: '17:00' })],
+        [DAY2]: [block({ id: 'g', kind: 'free', name: 'Free', start: '09:00', end: '17:00' })]
+      }
+    })
+    expect(lines(r)).toEqual([`${DAY3} 09:00-10:00 Essay`])
+  })
+
+  it('a full parallel lane does not block focus placement', () => {
+    // a 3D print running all day is unattended; the focus lane is still free
+    const r = run({
+      backlog: [task({ estimateMinutes: 60 })],
+      days: {
+        [DAY1]: [block({ id: 'p', lane: 'parallel', start: '09:00', end: '17:00' })]
+      }
+    })
+    expect(lines(r)).toEqual([`${DAY1} 09:00-10:00 Essay`])
+  })
+
+  it('sees a block that runs past midnight as occupied', () => {
+    // parseHM alone yields {start: 1380, end: 30}, an inverted interval that the
+    // sweep discards — the planner would schedule straight over it
+    const r = run({
+      backlog: [task({ estimateMinutes: 60 })],
+      settings: settings({ dayStart: '22:00', dayEnd: '23:59' }),
+      days: { [DAY1]: [block({ id: 'n', start: '22:00', end: '00:30' })] }
+    })
+    expect(lines(r).filter((l) => l.startsWith(DAY1))).toEqual([])
   })
 })

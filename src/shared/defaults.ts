@@ -22,7 +22,13 @@ export function defaultSettings(): Settings {
     dayEnd: '17:00',
     breaksEnabled: true,
     breakMinutes: 10,
-    alwaysOnTop: false
+    alwaysOnTop: false,
+    // ~30 minutes of protected time after every two hours of focus work. Safe to
+    // default on: regeneration is manual, so no already-generated day changes
+    // shape until the user presses the button.
+    freeBufferEnabled: true,
+    freeBufferMinutes: 30,
+    freeBufferEveryMinutes: 120
   }
 }
 
@@ -63,8 +69,9 @@ export function getDay(data: AppData, date: DateKey): DayData {
 
 export function defaultAppData(): AppData {
   return {
-    version: 6,
+    version: 7,
     activeTimer: null,
+    dayPause: null,
     projects: [],
     activitySets: [defaultActivitySet()],
     activities: [],

@@ -5,7 +5,7 @@ import { defaultActivitySet, defaultPrayerSettings, defaultSettings } from './de
  * Bump this whenever the on-disk shape changes, and add a matching step to the
  * chain in `migrate()`. `src/main/store.ts` backs the file up before applying.
  */
-export const CURRENT_VERSION = 6
+export const CURRENT_VERSION = 7
 
 type AnyData = Record<string, unknown>
 
@@ -191,6 +191,43 @@ function v5ToV6(data: AnyData): AnyData {
 }
 
 /**
+ * v7 adds protected free time, hand-edited (manual) blocks, the end-of-block
+ * prompt stamp, and the day-wide pause.
+ *
+ * No free blocks are created retroactively. Regeneration is manual, so a day
+ * that has already been generated keeps exactly the shape the user last saw
+ * until they press the button — a migration is the wrong place to rewrite a
+ * schedule someone may already be partway through.
+ */
+function v6ToV7(data: AnyData): AnyData {
+  const days = asRecord(data.days)
+
+  return {
+    ...data,
+    version: 7,
+    dayPause: data.dayPause ?? null,
+    // defaults first, so a field written by a newer build is never clobbered
+    settings: { ...defaultSettings(), ...asRecord(data.settings) },
+    days: Object.fromEntries(
+      Object.entries(days).map(([key, day]) => [
+        key,
+        {
+          ...day,
+          schedule: Array.isArray(day.schedule)
+            ? (day.schedule as AnyData[]).map((b) => ({
+                ...b,
+                manual: b.manual ?? false,
+                promptedAt: b.promptedAt ?? null,
+                plannedMinutes: b.plannedMinutes ?? null
+              }))
+            : day.schedule
+        }
+      ])
+    )
+  }
+}
+
+/**
  * Upgrades a parsed document to CURRENT_VERSION. Steps run in sequence, so a
  * document several versions behind walks through each one in turn.
  */
@@ -201,5 +238,6 @@ export function migrate(raw: AnyData): AppData {
   if ((data.version as number) === 3) data = v3ToV4(data)
   if ((data.version as number) === 4) data = v4ToV5(data)
   if ((data.version as number) === 5) data = v5ToV6(data)
+  if ((data.version as number) === 6) data = v6ToV7(data)
   return data as unknown as AppData
 }

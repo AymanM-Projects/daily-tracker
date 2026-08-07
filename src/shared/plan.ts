@@ -1,5 +1,6 @@
 import type { BacklogTask, DateKey, ScheduleBlock, Settings } from './types'
 import type { Anchor } from './schedule'
+import { blockMinutes, blockSpan, freeIntervals, type Interval } from './blocks'
 import { formatHM, parseHM, shiftDateKey } from './time'
 
 export const PLAN_DEFAULTS = {
@@ -29,29 +30,6 @@ export interface PlanResult {
   unplaced: string[]
 }
 
-interface Interval {
-  start: number
-  end: number
-}
-
-/** Free stretches of a day: the window, minus everything already occupying it. */
-function freeIntervals(taken: Interval[], windowStart: number, windowEnd: number): Interval[] {
-  if (windowEnd <= windowStart) return []
-  const sorted = [...taken].sort((a, b) => a.start - b.start)
-  const free: Interval[] = []
-  let cursor = windowStart
-
-  for (const t of sorted) {
-    if (t.end <= cursor) continue
-    if (t.start > cursor) free.push({ start: cursor, end: Math.min(t.start, windowEnd) })
-    cursor = Math.max(cursor, t.end)
-    if (cursor >= windowEnd) break
-  }
-  if (cursor < windowEnd) free.push({ start: cursor, end: windowEnd })
-
-  return free.filter((f) => f.end > f.start)
-}
-
 /**
  * Priority outranks the deadline: an urgent task with no due date should still
  * beat a low-priority one due next week.
@@ -63,13 +41,6 @@ function sortForPlanning(tasks: BacklogTask[]): BacklogTask[] {
       (a.dueDate ?? '9999-12-31').localeCompare(b.dueDate ?? '9999-12-31') ||
       a.createdAt.localeCompare(b.createdAt)
   )
-}
-
-function blockMinutes(block: ScheduleBlock): number {
-  const start = parseHM(block.start)
-  let end = parseHM(block.end)
-  if (end <= start) end += 1440 // wrapped past midnight
-  return end - start
 }
 
 /**
@@ -93,7 +64,10 @@ export function planBacklog(input: PlanInput): PlanResult {
   const placedByTask = new Map<string, number>()
   for (const blocks of Object.values(input.days)) {
     for (const b of blocks) {
-      if (!b.backlogTaskId) continue
+      // a skipped block bought no time. Counting it would silently shrink the
+      // task's remaining work, and the task would never be re-placed — skipping
+      // something would quietly delete it instead of deferring it.
+      if (!b.backlogTaskId || b.status === 'skipped') continue
       placedByTask.set(b.backlogTaskId, (placedByTask.get(b.backlogTaskId) ?? 0) + blockMinutes(b))
     }
   }
@@ -114,7 +88,14 @@ export function planBacklog(input: PlanInput): PlanResult {
     const date = shiftDateKey(input.fromDate, offset)
     const existing = input.days[date] ?? []
     const taken: Interval[] = [
-      ...existing.map((b) => ({ start: parseHM(b.start), end: parseHM(b.end) })),
+      ...existing
+        // work is placed into the focus lane, so a 3D print running all day in
+        // the parallel lane must not make the whole day look occupied
+        .filter((b) => b.lane === 'focus')
+        // blockSpan unwraps a block that runs past midnight; reading the stored
+        // end raw yields an inverted interval that freeIntervals discards, and
+        // the planner would schedule straight over it
+        .map(blockSpan),
       ...(input.anchorsByDate[date] ?? [])
     ]
     const start = offset === 0 ? Math.max(windowStart, input.fromMinute) : windowStart
@@ -168,7 +149,10 @@ export function planBacklog(input: PlanInput): PlanResult {
         end: formatHM(part.start + part.length),
         overflow: false,
         status: 'planned',
-        actualMinutes: null
+        actualMinutes: null,
+        manual: false,
+        promptedAt: null,
+        plannedMinutes: null
       }
       placements[part.date] = [...(placements[part.date] ?? []), block]
     })

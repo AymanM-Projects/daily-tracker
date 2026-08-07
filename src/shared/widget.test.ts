@@ -24,6 +24,9 @@ function block(over: Partial<ScheduleBlock> = {}): ScheduleBlock {
     overflow: false,
     status: 'planned',
     actualMinutes: null,
+    manual: false,
+    promptedAt: null,
+    plannedMinutes: null,
     ...over
   }
 }

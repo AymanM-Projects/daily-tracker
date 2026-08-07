@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import type { ScheduleBlock } from '@shared/types'
 import { generateSchedule, type Anchor } from '@shared/schedule'
 import { prayerTimes } from '@shared/prayer'
+import { blockSpan, byStart } from '@shared/blocks'
 import { formatClock, formatClockMinutes, minutesNow, parseHM } from '@shared/time'
 import { useData } from '../state/DataContext'
 import { useTimer } from '../hooks/useTimer'
@@ -31,13 +32,6 @@ const blockVariants = {
   show: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 380, damping: 28 } as const }
 }
 
-function blockBounds(block: ScheduleBlock): { start: number; end: number } {
-  const start = parseHM(block.start)
-  let end = parseHM(block.end)
-  if (end <= start) end += 1440
-  return { start, end }
-}
-
 interface LaneProps {
   blocks: ScheduleBlock[]
   dayStartMin: number
@@ -55,22 +49,36 @@ function Lane({
   runningId,
   onSelect
 }: LaneProps): React.JSX.Element {
+  // DOM order is emission order — anchors, then focus, then parallel, with
+  // replan appending placements afterwards. Blocks are absolutely positioned, so
+  // without an explicit sort a later block paints over an earlier one wherever
+  // two overlap. Chronological order plus a rising zIndex makes the stack read
+  // the way the eye expects.
+  const ordered = [...blocks].sort(byStart)
+
   return (
     <div className={className}>
-      {blocks.map((block) => {
-        const { start, end } = blockBounds(block)
+      {ordered.map((block, index) => {
+        const { start, end } = blockSpan(block)
         const rawHeight = (end - start) * PX_PER_MIN - 3
-        const height = Math.max(rawHeight, block.kind === 'break' ? 8 : 22)
         const current = nowMin !== null && nowMin >= start && nowMin < end
         const running = block.id === runningId
         const isBreak = block.kind === 'break'
         const isAnchor = block.kind === 'anchor'
-        // neither a break nor a prayer is yours to mark done, so neither is tappable
+        const isFree = block.kind === 'free'
+        // a block shorter than the 22px floor gets drawn taller than its slot and
+        // laps its neighbour; a single-line variant clamps that to 14px instead
+        const tiny = !isBreak && rawHeight < 22
+        const height = Math.max(rawHeight, isBreak ? 8 : tiny ? 14 : 22)
+        // neither a break nor a prayer is yours to mark done, so neither is
+        // tappable. Free time is — it is where you put things.
         const isFixed = isBreak || isAnchor
         const classes = [
           'block',
           isBreak ? 'break' : '',
           isAnchor ? 'anchor' : '',
+          isFree ? 'free' : '',
+          tiny ? 'tiny' : '',
           block.backlogTaskId ? 'from-backlog' : '',
           block.lane === 'parallel' ? 'parallel' : '',
           block.overflow ? 'overflow' : '',
@@ -96,6 +104,13 @@ function Lane({
               <MoonIcon size={10} />
               {block.name}
             </span>
+            {height >= 30 && <span className="block-time">{range}</span>}
+          </>
+        ) : isFree ? (
+          // no icon and no flags: protected time has no status to report, and
+          // the hatch is already carrying the meaning
+          <>
+            <span className="block-name">{block.name}</span>
             {height >= 30 && <span className="block-time">{range}</span>}
           </>
         ) : (
@@ -125,7 +140,7 @@ function Lane({
             key={block.id}
             className={classes}
             variants={blockVariants}
-            style={{ top: (start - dayStartMin) * PX_PER_MIN, height }}
+            style={{ top: (start - dayStartMin) * PX_PER_MIN, height, zIndex: index }}
           >
             {body}
           </motion.div>
@@ -134,9 +149,13 @@ function Lane({
             key={block.id}
             className={classes}
             variants={blockVariants}
-            style={{ top: (start - dayStartMin) * PX_PER_MIN, height }}
+            style={{ top: (start - dayStartMin) * PX_PER_MIN, height, zIndex: index }}
             onClick={() => onSelect(block)}
-            aria-label={`${block.name}, ${formatClock(block.start)} to ${formatClock(block.end)}, ${block.status}`}
+            aria-label={
+              isFree
+                ? `Free time, ${formatClock(block.start)} to ${formatClock(block.end)}`
+                : `${block.name}, ${formatClock(block.start)} to ${formatClock(block.end)}, ${block.status}`
+            }
           >
             {body}
           </motion.button>
@@ -189,7 +208,7 @@ function SchedulePane(): React.JSX.Element {
   const parallelBlocks = blocks.filter((b) => b.lane === 'parallel')
   const hasParallel = parallelBlocks.length > 0
 
-  const maxEnd = blocks.reduce((max, b) => Math.max(max, blockBounds(b).end), dayEndMin)
+  const maxEnd = blocks.reduce((max, b) => Math.max(max, blockSpan(b).end), dayEndMin)
   const timelineHeight = (maxEnd - dayStartMin) * PX_PER_MIN
 
   const hourLines: number[] = []
