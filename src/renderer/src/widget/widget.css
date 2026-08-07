@@ -156,7 +156,7 @@ body {
 
 .widget-row.upcoming .widget-name {
   color: var(--text-secondary);
-  font-weight: 450;
+  font-weight: 400;
 }
 
 .widget-away {
@@ -216,7 +216,7 @@ body {
 .widget-empty-text strong {
   display: block;
   font-size: 12.5px;
-  font-weight: 550;
+  font-weight: 600;
   color: var(--text-secondary);
 }
 

@@ -11,21 +11,33 @@
   --border: rgba(168, 180, 196, 0.18);
   --border-strong: rgba(168, 180, 196, 0.32);
   --text: #f8fafc;
-  --text-secondary: #d3dae4;
-  --text-muted: #a8b4c4;
-  --accent: #34d399;
-  --accent-strong: #6ee7b7;
-  --accent-dim: rgba(52, 211, 153, 0.14);
-  --accent-contrast: #04231a;
-  --parallel: #60a5fa;
-  --parallel-dim: rgba(96, 165, 250, 0.14);
+  --text-secondary: #dce1e8;
+  --text-muted: #aeb6c2;
+  /*
+   * Focus cyan and parallel fuchsia sit 104 degrees apart in hue. The old
+   * emerald/blue pair was only 55 apart, which is why two 3px lane bars read as
+   * the same colour at a glance. Luminance is near identical either way — hue
+   * separation is what does the work.
+   */
+  --accent: #22d3ee;
+  --accent-strong: #67e8f9;
+  --accent-dim: rgba(34, 211, 238, 0.14);
+  --accent-contrast: #03212a;
+  --parallel: #e879f9;
+  --parallel-dim: rgba(232, 121, 249, 0.14);
   --danger: #fb7185;
   --danger-dim: rgba(251, 113, 133, 0.13);
   --warn: #fbbf24;
   --warn-dim: rgba(251, 191, 36, 0.14);
+  /*
+   * Bundled from @fontsource, never fetched: the CSP is default-src 'self' and
+   * the app has to work offline. The system stack stays behind them so a failed
+   * load degrades to the previous look rather than to Times.
+   */
   --font-sans:
-    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', 'Segoe UI', sans-serif;
-  --font-mono: ui-monospace, 'SF Mono', 'Menlo', 'Consolas', monospace;
+    'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', 'Segoe UI',
+    sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', 'Menlo', 'Consolas', monospace;
   --radius-sm: 8px;
   --radius: 10px;
   --radius-lg: 14px;

@@ -1093,14 +1093,29 @@ button.block:hover {
   font-weight: 500;
 }
 
+/*
+ * Times take their lane's colour so a block reads as live data rather than grey
+ * chrome. Settled blocks and breaks drop back to muted — colour is reserved for
+ * what is still in play. Verified at 9px: cyan 8.10:1, fuchsia 5.39:1.
+ */
 .block-time {
   font-family: var(--font-mono);
   font-size: 9px;
-  color: var(--text-muted);
+  color: var(--accent);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100%;
+}
+
+.block.parallel .block-time {
+  color: var(--parallel);
+}
+
+.block.break .block-time,
+.block.is-done .block-time,
+.block.is-skipped .block-time {
+  color: var(--text-muted);
 }
 
 .block-flag {
