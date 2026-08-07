@@ -15,13 +15,22 @@ npm run lint         # eslint --cache .
 npm run format       # prettier --write .
 npm run build        # typecheck + electron-vite build
 npm run build:mac    # package a .app via electron-builder
+npm test             # vitest run — the whole suite, once
+```
+
+```bash
+npx vitest run src/shared/plan.test.ts            # one file
+npx vitest run -t 'never places over an anchor'   # one test, by name
+npx vitest                                        # watch mode
 ```
 
 `build:mac` writes `dist/mac-arm64/daily-tracker.app` plus a `.dmg` and `.zip`. It is **unsigned** — there is no Developer ID, so electron-builder skips signing. A locally built app opens fine; one that has been downloaded or AirDropped picks up a quarantine flag and needs right-click → Open once.
 
 Two things in `electron-builder.yml` that must not drift: `productName: daily-tracker` decides `app.getPath('userData')`, so renaming it strands the existing data file; and `asarUnpack: resources/**` is what lets `nativeImage.createFromPath` read the tray icons at runtime.
 
-There is no test framework in this project. Verify changes by running the app (see below), not by running tests.
+There is no vitest config file — vitest runs on defaults and picks up `src/**/*.test.ts`. **Only `src/shared/` is tested**, because that is where the pure logic lives; main and renderer have no test harness, so UI and IPC changes are still verified by running the app (see below).
+
+Tests are written in one house style, set by `plan.test.ts`: local factories taking `Partial<T>` overrides, no mocks, and **no clock** — every module that needs the time or the date takes it as an argument. Assertions flatten results into readable strings (`'DATE HH:mm-HH:mm name'`) rather than comparing object graphs. Follow it; a test that reaches for `vi.mock` or `new Date()` is a sign the module under test has the wrong seam.
 
 ### Launching Electron from this environment
 
@@ -43,6 +52,14 @@ From there, `Runtime.evaluate` drives the UI and `Page.captureScreenshot` confir
 `electron.vite.config.ts` builds `src/main`, `src/preload`, and `src/renderer` separately. `src/shared/` is compiled into **both** the node and web TS projects (it appears in the `include` of `tsconfig.node.json` and `tsconfig.web.json`, and is aliased to `@shared` in the renderer). Anything main and renderer both need — types, time math, the schedule generator — belongs there. Renderer code imports it as `@shared/types`; main and preload use relative paths (`../shared/types`), because the alias is only registered for the renderer build.
 
 The renderer target has **two HTML entries**: `index.html` (the app window) and `widget.html` (the menu bar popover), declared as separate rollup inputs. They are separate documents with separate React roots, so the popover never loads the panes, the reducer or `DataContext`.
+
+### Block geometry lives in exactly one module
+
+`src/shared/blocks.ts` owns everything that reasons about where a block sits in time: `blockSpan` / `blockMinutes` / `blockEnd`, `overlaps`, `freeIntervals`, `byStart`, `coalesceFree`, `makeFreeBlock`, and the `isImmovable` / `isTransparent` / `isConsumable` predicates.
+
+**`blockSpan` is the only place the past-midnight unwrap is written.** `formatHM` wraps, so an overflow block ending at 00:30 stores `end: "00:30"` — below its own start. Reading `parseHM(end)` raw yields an inverted interval that every sweep in this codebase silently discards, which makes a 23:00–00:30 block invisible and gets scheduled straight over. That unwrap was independently duplicated in four modules before it moved here; if you find yourself writing `parseHM(block.end)`, use `blockSpan` instead.
+
+`freeIntervals` lives here rather than in `plan.ts` on purpose: `plan.ts` already imports from `schedule.ts`, so leaving it there and having `schedule.ts` import it creates a cycle.
 
 ### The menu bar widget
 
@@ -71,6 +88,16 @@ DataContext (useReducer)  --IPC 'data:save'-->  store.ts  -->  daily-tracker-dat
 - `src/renderer/src/state/DataContext.tsx` holds the entire `AppData` in one reducer. Every committed change triggers a `saveData` effect that ships the **whole document** to main.
 - `src/main/store.ts` debounces those saves 300 ms, writes atomically (tmp file + rename), and flushes synchronously on `before-quit`. A parse failure renames the bad file to `*.corrupt-<epoch>.json` rather than discarding it.
 - The preload bridge (`src/preload/index.ts`, typed in `index.d.ts`) exposes exactly three calls: `loadData`, `saveData`, `setAlwaysOnTop`. Adding an IPC channel means touching main, preload, and the `Api` interface together.
+
+### Schema versions and migration
+
+`AppData.version` is currently **7**. `src/shared/migrate.ts` is a chain of one-way `vNToVN+1` pure functions, applied in sequence by `migrate()`, so a document several versions behind walks through each step in turn. Never edit an old migration to add a new field — write the next one.
+
+Changing the schema means bumping the version in **three** places that must agree: `CURRENT_VERSION` in `migrate.ts`, the literal on `AppData` in `types.ts`, and the default in `defaults.ts`. Miss one and the app either re-migrates every launch or quarantines its own file.
+
+`store.ts` guards the file on load: a parse failure or a version _newer_ than `CURRENT_VERSION` renames the file aside (`*.corrupt-<epoch>.json`, `*.newer-v<n>-<epoch>.json`) rather than discarding it, and an older version is copied to `*.pre-v<n>-<epoch>.json` before migrating. Those backups accumulate in `~/Library/Application Support/daily-tracker/` and are never cleaned up.
+
+**A migration must not invent history.** `v6ToV7` deliberately creates no free blocks on already-generated days — a day keeps the exact shape the user last saw until they press Regenerate.
 
 ### Per-day keying
 
@@ -126,10 +153,24 @@ Blocks that run past `dayEnd` are flagged `overflow: true` rather than truncated
 
 Regeneration is **manual only** (the Generate/Regenerate button). Editing activities or settings never silently rewrites a schedule mid-day.
 
+### Protected free time
+
+`kind: 'free'` blocks are rest the generator commits to. `fillLane` tracks focus minutes since the last real rest and, once `settings.freeBufferEveryMinutes` is reached, emits a free block **instead of** the break at that boundary — two rests back to back is one rest.
+
+- **Focus lane only.** Protected rest from an unattended 3D print means nothing, and a free block in the parallel lane would tell `planBacklog` the whole day is occupied.
+- **An anchor on the boundary is the rest.** Salah interrupts the flow on its own, so it resets the accumulator and nothing is inserted on top of it.
+- **Skipped, never shifted.** A buffer that collides with a nearby anchor or would cross `dayEnd` is dropped and stays due at the next boundary — moving it would put rest somewhere the user didn't earn it.
+- **The leftover tail of the day is deliberately NOT protected**, and this is the one that looks like an oversight. `planBacklog` treats every focus-lane block as occupied regardless of `kind` — that is exactly why free time is safe from it with no code in `plan.ts` — and `SchedulePane.generate()` dispatches `replan` immediately after `setSchedule`. Protecting the tail would therefore mean backlog work could never be placed on a generated day at all. There is a test asserting the tail stays open.
+
+`buildWidgetSummary` filters `kind: 'free'` out of `now` / `next` / `dayComplete`, so the menu bar never announces "Free" as the current task or counts down the end of a rest.
+
 ## Conventions
 
 - **Animations use Motion (`motion/react`)** — not CSS transitions — for anything stateful: `AnimatePresence mode="wait"` for tab switches, `layout` + `AnimatePresence` for list enter/exit, `staggerChildren` variants for list and timeline reveals, `layoutId` for the sliding tab indicator, spring `whileHover`/`whileTap` on controls. `MotionConfig reducedMotion="user"` in `App.tsx` plus a `prefers-reduced-motion` block in the CSS handle accessibility.
-- **Styling is hand-written CSS** driven by custom properties — dark palette, cyan accent for focus, fuchsia for parallel, amber for overflow, rose for destructive. No CSS framework, no CSS-in-JS. The palette lives in `src/renderer/src/assets/tokens.css` and nowhere else; `main.css` (app window) and `src/renderer/src/widget/widget.css` (popover) both `@import` it, because they are separate documents with separate bundles. Change a colour there, not in either stylesheet.
+- **Styling is hand-written CSS** driven by custom properties — dark palette, cyan accent for focus, fuchsia for parallel, amber for overflow, rose for destructive. No CSS framework, no CSS-in-JS. The palette is _meant_ to live in `src/renderer/src/assets/tokens.css`; `main.css` (app window) and `src/renderer/src/widget/widget.css` (popover) both `@import` it, because they are separate documents with separate bundles. Add or change a colour there, not in either stylesheet.
+
+**That rule is not currently held.** About 19 colours are still hardcoded outside `tokens.css` — the whole violet anchor family (`#a78bfa`, `#c4b5fd` and five `rgba` variants), both modal scrims, and the block glows. Two of those glows (`.block.current`, `.block.running`) use `rgba(52, 211, 153, …)`, which is the **emerald accent from before the cyan/fuchsia change** — the ring beside them correctly uses `var(--accent)`, so they have been quietly mismatched since. Promoting these into tokens is a prerequisite for any second theme (there is no light mode, no `prefers-color-scheme` rule, and no `nativeTheme` usage anywhere).
+
 - **The two lane colours are chosen for hue separation, not luminance.** Cyan and fuchsia sit 104° apart; the previous emerald/blue pair was 55° apart and read as one colour in a 3px lane bar. If you ever re-pick them, check the hue gap — contrast ratio alone will not tell you whether two lanes are distinguishable.
 - **Fonts are bundled, never fetched.** IBM Plex Sans/Mono come from `@fontsource/*`, imported in both renderer entries. The CSP is `default-src 'self'` and the app must work offline, so a Google Fonts `@import` would silently fall back to a system font. Only static weights are bundled (400/500/600/700) — do not write `font-weight: 450`; that only worked while the stack resolved to variable SF Pro.
 - **Icons are inline SVG components** in `src/renderer/src/components/icons.tsx` (24×24 viewBox, `currentColor` stroke). No emoji as icons, no icon library dependency.

@@ -79,6 +79,17 @@ export type Action =
   | { type: 'completeTimer' }
   | { type: 'setBlockStatus'; date: DateKey; blockId: string; status: BlockStatus }
   | { type: 'setBlockActualMinutes'; date: DateKey; blockId: string; minutes: number | null }
+  /**
+   * Replace a day's blocks, keeping `unscheduled` (unlike `setSchedule`, which
+   * replaces the day wholesale after a regeneration).
+   *
+   * Geometry is computed by the caller through `shared/reschedule.ts` and only
+   * the result is dispatched — the same seam `SchedulePane.generate()` already
+   * uses for `generateSchedule`. That keeps every action plain serialisable
+   * data: an edit that collides is refused in the component, where the sheet can
+   * actually name what is in the way, rather than failing silently in here.
+   */
+  | { type: 'setDaySchedule'; date: DateKey; blocks: ScheduleBlock[] }
 
 function withDay(data: AppData, date: DateKey, mutate: (day: DayData) => DayData): AppData {
   return { ...data, days: { ...data.days, [date]: mutate(getDay(data, date)) } }
@@ -476,9 +487,18 @@ function reducer(state: State, action: Action): State {
     case 'setBlockActualMinutes':
       return {
         ...state,
-        data: withDay(state.data, action.date, (day) =>
-          mapBlock(day, action.blockId, (b) => ({ ...b, actualMinutes: action.minutes }))
-        )
+        data: withDay(state.data, action.date, (day) => {
+          // free time and prayers have no "how long did it take" — the same guard
+          // applyBlockStatus carries, now that free blocks are tappable
+          const block = day.schedule?.find((b) => b.id === action.blockId)
+          if (!block || block.kind !== 'activity') return day
+          return mapBlock(day, action.blockId, (b) => ({ ...b, actualMinutes: action.minutes }))
+        })
+      }
+    case 'setDaySchedule':
+      return {
+        ...state,
+        data: withDay(state.data, action.date, (day) => ({ ...day, schedule: action.blocks }))
       }
   }
 }

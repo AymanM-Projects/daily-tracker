@@ -194,8 +194,29 @@ function SchedulePane(): React.JSX.Element {
             end: t.minutes + prayer.blockMinutes
           }))
       : []
-    const result = generateSchedule(activities, settings, { anchors })
-    dispatch({ type: 'setSchedule', date, blocks: result.blocks, unscheduled: result.unscheduled })
+    // Anything hand-edited or already settled survives regeneration, fed back in
+    // as anchors so the generator flows around it. The seam costs nothing:
+    // `generateSchedule` takes anchors as plain {name, start, end} data, and a
+    // manual block is exactly that shape.
+    //
+    // Only focus-lane blocks become anchors — anchors are focus-only, so a pinned
+    // parallel block would otherwise wrongly block focus work. It still survives
+    // untouched via `keep`.
+    const keep = blocks.filter((b) => b.manual || b.status !== 'planned')
+    const pinned: Anchor[] = keep
+      .filter((b) => b.lane === 'focus')
+      .map((b) => {
+        const span = blockSpan(b)
+        return { name: b.name, start: span.start, end: span.end }
+      })
+
+    const result = generateSchedule(activities, settings, { anchors: [...anchors, ...pinned] })
+    dispatch({
+      type: 'setSchedule',
+      date,
+      blocks: [...keep, ...result.blocks],
+      unscheduled: result.unscheduled
+    })
     // setSchedule replaces the day wholesale, which drops any backlog work that
     // had been placed in it — re-place it around the freshly generated blocks.
     // Regenerating is an explicit action, so rebuilding the day here is expected.
