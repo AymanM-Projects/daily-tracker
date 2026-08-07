@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import type { ScheduleBlock } from '@shared/types'
-import { generateSchedule } from '@shared/schedule'
-import { minutesNow, parseHM } from '@shared/time'
+import { generateSchedule, type Anchor } from '@shared/schedule'
+import { prayerTimes } from '@shared/prayer'
+import { formatClock, formatClockMinutes, minutesNow, parseHM } from '@shared/time'
 import { useData } from '../state/DataContext'
 import { useTimer } from '../hooks/useTimer'
 import EmptyState from '../components/EmptyState'
@@ -12,6 +13,7 @@ import {
   CalendarIcon,
   CheckIcon,
   CoffeeIcon,
+  MoonIcon,
   PlayIcon,
   SkipIcon,
   SparklesIcon
@@ -62,9 +64,13 @@ function Lane({
         const current = nowMin !== null && nowMin >= start && nowMin < end
         const running = block.id === runningId
         const isBreak = block.kind === 'break'
+        const isAnchor = block.kind === 'anchor'
+        // neither a break nor a prayer is yours to mark done, so neither is tappable
+        const isFixed = isBreak || isAnchor
         const classes = [
           'block',
           isBreak ? 'break' : '',
+          isAnchor ? 'anchor' : '',
           block.lane === 'parallel' ? 'parallel' : '',
           block.overflow ? 'overflow' : '',
           current ? 'current' : '',
@@ -75,6 +81,7 @@ function Lane({
           .filter(Boolean)
           .join(' ')
 
+        const range = `${formatClock(block.start)} – ${formatClock(block.end)}`
         const body = isBreak ? (
           height >= 15 && (
             <>
@@ -82,14 +89,20 @@ function Lane({
               <span className="block-name">Break</span>
             </>
           )
+        ) : isAnchor ? (
+          <>
+            <span className="block-name">
+              <MoonIcon size={10} />
+              {block.name}
+            </span>
+            {height >= 30 && <span className="block-time">{range}</span>}
+          </>
         ) : (
           <>
             <span className="block-name">{block.name}</span>
             {height >= 34 && (
               <span className="block-time">
-                {block.actualMinutes !== null
-                  ? `${block.start}–${block.end} · took ${block.actualMinutes}m`
-                  : `${block.start}–${block.end}`}
+                {block.actualMinutes !== null ? `${range} · took ${block.actualMinutes}m` : range}
               </span>
             )}
             <span className="block-flags">
@@ -105,8 +118,8 @@ function Lane({
           </>
         )
 
-        // breaks aren't markable, so they stay non-interactive
-        return isBreak ? (
+        // breaks and prayers aren't markable, so they stay non-interactive
+        return isFixed ? (
           <motion.div
             key={block.id}
             className={classes}
@@ -122,7 +135,7 @@ function Lane({
             variants={blockVariants}
             style={{ top: (start - dayStartMin) * PX_PER_MIN, height }}
             onClick={() => onSelect(block)}
-            aria-label={`${block.name}, ${block.start} to ${block.end}, ${block.status}`}
+            aria-label={`${block.name}, ${formatClock(block.start)} to ${formatClock(block.end)}, ${block.status}`}
           >
             {body}
           </motion.button>
@@ -133,7 +146,7 @@ function Lane({
 }
 
 function SchedulePane(): React.JSX.Element {
-  const { state, today, activities, settings, dispatch } = useData()
+  const { state, today, activities, settings, prayer, dispatch } = useData()
   const date = state.activeDate
   const timer = useTimer()
   const [nowMin, setNowMin] = useState(minutesNow())
@@ -150,7 +163,18 @@ function SchedulePane(): React.JSX.Element {
   const canGenerate = activities.length > 0 && !invalidWindow
 
   const generate = (): void => {
-    const result = generateSchedule(activities, settings)
+    // prayer times are resolved here, not in schedule.ts — the generator takes
+    // anchors as plain data and knows nothing about what they represent
+    const anchors: Anchor[] = prayer.enabled
+      ? prayerTimes(date, prayer)
+          .filter((t) => prayer.include.includes(t.name))
+          .map((t) => ({
+            name: t.name,
+            start: t.minutes,
+            end: t.minutes + prayer.blockMinutes
+          }))
+      : []
+    const result = generateSchedule(activities, settings, { anchors })
     dispatch({ type: 'setSchedule', date, blocks: result.blocks, unscheduled: result.unscheduled })
   }
 
@@ -268,7 +292,7 @@ function SchedulePane(): React.JSX.Element {
           >
             {hourLines.map((m) => (
               <div key={m} className="hourline" style={{ top: (m - dayStartMin) * PX_PER_MIN }}>
-                <span className="hourline-label">{`${String(Math.floor(m / 60)).padStart(2, '0')}:00`}</span>
+                <span className="hourline-label">{formatClockMinutes(m)}</span>
               </div>
             ))}
             <div className="lanes">

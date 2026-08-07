@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'motion/react'
 import type { AiStatus } from '@shared/types'
+import { PRAYER_METHODS, prayerTimes } from '@shared/prayer'
+import { formatClockMinutes, todayKey } from '@shared/time'
 import { useData } from '../state/DataContext'
-import { CheckIcon, SparklesIcon, TrashIcon } from '../components/icons'
+import { CheckIcon, MoonIcon, SparklesIcon, TrashIcon } from '../components/icons'
 
 type TestState =
   { kind: 'idle' } | { kind: 'testing' } | { kind: 'ok' } | { kind: 'error'; message: string }
 
 function SettingsPane(): React.JSX.Element {
-  const { settings, dispatch } = useData()
+  const { settings, prayer, dispatch } = useData()
   const [status, setStatus] = useState<AiStatus | null>(null)
   const [draftKey, setDraftKey] = useState('')
   const [reveal, setReveal] = useState(false)
@@ -145,6 +147,86 @@ function SettingsPane(): React.JSX.Element {
           Nothing yet — this only stores the key. The review and suggestion features come next, and
           the app stays fully usable with no key at all.
         </p>
+      </div>
+
+      <h2 className="pane-title">
+        <MoonIcon size={12} />
+        Prayer times
+      </h2>
+      <div className="setting-card">
+        <div className="setting-row">
+          <span className="setting-label">Block time for prayers</span>
+          <button
+            className="switch"
+            role="switch"
+            aria-checked={prayer.enabled}
+            onClick={() => dispatch({ type: 'updatePrayer', patch: { enabled: !prayer.enabled } })}
+          >
+            <span className="switch-track">
+              <motion.span
+                layout
+                className="switch-thumb"
+                transition={{ type: 'spring', stiffness: 600, damping: 32 }}
+              />
+            </span>
+          </button>
+        </div>
+
+        {prayer.enabled && (
+          <>
+            <label className="setting-row">
+              <span className="setting-label">Minutes per prayer</span>
+              <input
+                className="field field-time"
+                type="number"
+                min={5}
+                max={60}
+                step={5}
+                value={prayer.blockMinutes}
+                onChange={(e) => {
+                  const n = Number.parseInt(e.target.value, 10)
+                  if (Number.isFinite(n) && n > 0) {
+                    dispatch({ type: 'updatePrayer', patch: { blockMinutes: n } })
+                  }
+                }}
+                aria-label="Minutes blocked per prayer"
+              />
+            </label>
+
+            <p className="hint">Today in Richmond, VA — {PRAYER_METHODS.isna.label}</p>
+            <ul className="prayer-list">
+              {prayerTimes(todayKey(), prayer).map((t) => {
+                const on = prayer.include.includes(t.name)
+                return (
+                  <li key={t.name}>
+                    <button
+                      className={on ? 'prayer-row on' : 'prayer-row'}
+                      aria-pressed={on}
+                      onClick={() =>
+                        dispatch({
+                          type: 'updatePrayer',
+                          patch: {
+                            include: on
+                              ? prayer.include.filter((n) => n !== t.name)
+                              : [...prayer.include, t.name]
+                          }
+                        })
+                      }
+                    >
+                      <span className="prayer-name">{t.name}</span>
+                      <span className="prayer-time">{formatClockMinutes(t.minutes)}</span>
+                      {on && <CheckIcon size={11} />}
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+            <p className="hint">
+              Computed from your location, so they shift with the seasons. Tap one to stop blocking
+              time for it.
+            </p>
+          </>
+        )}
       </div>
 
       <h2 className="pane-title">App</h2>

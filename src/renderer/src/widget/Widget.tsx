@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { MotionConfig, motion } from 'motion/react'
 import type { WidgetBlock, WidgetSummary } from '@shared/types'
-import { formatMinutes } from '@shared/time'
+import { formatClock, formatMinutes } from '@shared/time'
 import { CalendarIcon, CheckIcon, CoffeeIcon } from '../components/icons'
 
 const rise = {
@@ -28,7 +28,7 @@ function Row({ block, upcoming }: { block: WidgetBlock; upcoming?: boolean }): R
         </span>
       </div>
       {upcoming ? (
-        <div className="widget-range">starts {block.start}</div>
+        <div className="widget-range">starts {formatClock(block.start)}</div>
       ) : (
         <>
           <div className="widget-track">
@@ -40,7 +40,7 @@ function Row({ block, upcoming }: { block: WidgetBlock; upcoming?: boolean }): R
             />
           </div>
           <div className="widget-range">
-            {block.start} – {block.end}
+            {formatClock(block.start)} – {formatClock(block.end)}
           </div>
         </>
       )}

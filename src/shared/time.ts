@@ -22,6 +22,25 @@ export function formatHM(minutes: number): string {
   return `${h}:${m}`
 }
 
+/**
+ * 'HH:mm' -> '9:00 AM', for display only.
+ *
+ * Deliberately separate from `formatHM`, which is the STORAGE format: block
+ * start/end are persisted as 24-hour strings and read back with `parseHM`.
+ * Rendering 12-hour must never change what is written to disk.
+ */
+export function formatClock(hm: string): string {
+  return formatClockMinutes(parseHM(hm))
+}
+
+/** minutes since midnight -> '9:00 AM' */
+export function formatClockMinutes(minutes: number): string {
+  const wrapped = ((Math.round(minutes) % 1440) + 1440) % 1440
+  const h24 = Math.floor(wrapped / 60)
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12
+  return `${h12}:${String(wrapped % 60).padStart(2, '0')} ${h24 < 12 ? 'AM' : 'PM'}`
+}
+
 /** Current local time in minutes since midnight */
 export function minutesNow(d: Date = new Date()): number {
   return d.getHours() * 60 + d.getMinutes()

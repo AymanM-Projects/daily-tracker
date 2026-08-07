@@ -1,4 +1,20 @@
-import type { ActivitySet, AppData, DateKey, DayData, Settings } from './types'
+import type { ActivitySet, AppData, DateKey, DayData, PrayerSettings, Settings } from './types'
+
+/** Richmond, Virginia + ISNA + standard Asr, per the user's configuration. */
+export function defaultPrayerSettings(): PrayerSettings {
+  return {
+    enabled: true,
+    latitude: 37.5407,
+    longitude: -77.436,
+    method: 'isna',
+    fajrAngle: 15,
+    ishaAngle: 15,
+    ishaInterval: null,
+    asrFactor: 1,
+    blockMinutes: 20,
+    include: ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha']
+  }
+}
 
 export function defaultSettings(): Settings {
   return {
@@ -47,12 +63,14 @@ export function getDay(data: AppData, date: DateKey): DayData {
 
 export function defaultAppData(): AppData {
   return {
-    version: 4,
+    version: 5,
     activeTimer: null,
     projects: [],
     activitySets: [defaultActivitySet()],
     activities: [],
     recurringTasks: [],
+    backlog: [],
+    prayer: defaultPrayerSettings(),
     settings: defaultSettings(),
     days: {}
   }

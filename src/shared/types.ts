@@ -87,7 +87,8 @@ export type BlockStatus = 'planned' | 'done' | 'skipped'
 
 export interface ScheduleBlock {
   id: string
-  kind: 'activity' | 'break'
+  /** 'anchor' is a fixed-time obligation (a prayer) that activities route around */
+  kind: 'activity' | 'break' | 'anchor'
   lane: ScheduleLane
   activityId: string | null // null for breaks
   name: string // snapshot of activity name at generation time
@@ -108,6 +109,31 @@ export interface ActiveTimer {
   startedAt: string // ISO, start of the current running segment
   accumulatedMs: number // banked from previous segments
   paused: boolean
+}
+
+export type PrayerName = 'Fajr' | 'Dhuhr' | 'Asr' | 'Maghrib' | 'Isha'
+
+/**
+ * Where and how prayer times are computed. Angles live here rather than being
+ * looked up from the method name at render time, so changing method is a plain
+ * data edit and a custom angle stays possible.
+ */
+export interface PrayerSettings {
+  enabled: boolean
+  latitude: number
+  longitude: number
+  /** key into PRAYER_METHODS, kept for the UI to show which preset is active */
+  method: string
+  fajrAngle: number
+  /** null when the method uses a fixed interval after Maghrib instead */
+  ishaAngle: number | null
+  ishaInterval: number | null // minutes after Maghrib
+  /** 1 = Shafi'i/Maliki/Hanbali, 2 = Hanafi */
+  asrFactor: number
+  /** how long each prayer blocks out of the focus lane */
+  blockMinutes: number
+  /** prayers the user wants blocked; others are computed but not scheduled */
+  include: PrayerName[]
 }
 
 export interface Settings {
@@ -157,7 +183,8 @@ export interface WidgetBlock {
   id: string
   name: string
   lane: ScheduleLane
-  kind: 'activity' | 'break'
+  /** anchors flow through too — during Maghrib, "now" should say Maghrib */
+  kind: 'activity' | 'break' | 'anchor'
   start: string // 'HH:mm'
   end: string // 'HH:mm'
   /** whole minutes until this block ends (if running) or starts (if upcoming) */
@@ -189,13 +216,32 @@ export interface WidgetSummary {
   checklist: { done: number; total: number }
 }
 
+/**
+ * A standing task with no fixed day. Placed into free time by the planner
+ * rather than owned by a date — this is the "forever list" the checklist becomes.
+ * Declared here in v5 but not populated until the backlog phase.
+ */
+export interface BacklogTask {
+  id: string
+  text: string
+  priority: Priority
+  estimateMinutes: number | null
+  dueDate: DateKey | null // null = no deadline, do it whenever there's room
+  done: boolean
+  completedAt: string | null
+  createdAt: string
+  recurringTaskId?: string
+}
+
 export interface AppData {
-  version: 4
+  version: 5
   activeTimer: ActiveTimer | null
   projects: Project[]
   activitySets: ActivitySet[]
   activities: Activity[]
   recurringTasks: RecurringTask[]
+  backlog: BacklogTask[]
+  prayer: PrayerSettings
   /** Fallback day window, used when no activity set is active. Kept for compatibility. */
   settings: Settings
   days: Record<DateKey, DayData>

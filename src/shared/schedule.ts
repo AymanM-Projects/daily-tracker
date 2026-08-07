@@ -6,6 +6,41 @@ export interface ScheduleResult {
   unscheduled: string[]
 }
 
+/** A fixed-time obligation the focus lane must work around, in minutes since midnight. */
+export interface Anchor {
+  name: string
+  start: number
+  end: number
+}
+
+export interface GenerateOptions {
+  /**
+   * Fixed commitments — prayers today, though this module deliberately knows
+   * nothing about what they are. They block the FOCUS lane only: a 3D print or
+   * a vibecoding run keeps running, which is the point of the parallel lane.
+   */
+  anchors?: Anchor[]
+}
+
+/**
+ * Push `cursor` past any anchor that a block of `duration` would collide with.
+ * Loops because stepping over one anchor can land on the next.
+ */
+function avoidAnchors(cursor: number, duration: number, anchors: Anchor[]): number {
+  let at = cursor
+  let moved = true
+  while (moved) {
+    moved = false
+    for (const a of anchors) {
+      if (at < a.end && a.start < at + duration) {
+        at = a.end
+        moved = true
+      }
+    }
+  }
+  return at
+}
+
 function sortForSchedule(activities: Activity[]): Activity[] {
   return [...activities].sort(
     (a, b) =>
@@ -18,7 +53,8 @@ function sortForSchedule(activities: Activity[]): Activity[] {
 function fillLane(
   activities: Activity[],
   lane: ScheduleLane,
-  settings: Settings
+  settings: Settings,
+  anchors: Anchor[]
 ): { blocks: ScheduleBlock[]; unscheduled: string[] } {
   const dayStart = parseHM(settings.dayStart)
   const dayEnd = parseHM(settings.dayEnd)
@@ -30,6 +66,8 @@ function fillLane(
 
   for (let i = 0; i < sorted.length; i++) {
     const activity = sorted[i]
+    // an activity is never split across an anchor — it starts after it instead
+    cursor = avoidAnchors(cursor, activity.durationMinutes, anchors)
     const end = cursor + activity.durationMinutes
     const overflow = end > dayEnd
     blocks.push({
@@ -50,7 +88,9 @@ function fillLane(
     }
     cursor = end
     const remaining = i < sorted.length - 1
-    if (withBreaks && remaining && cursor + settings.breakMinutes <= dayEnd) {
+    // a break is skipped rather than shifted when an anchor already interrupts here
+    const breakClear = avoidAnchors(cursor, settings.breakMinutes, anchors) === cursor
+    if (withBreaks && remaining && breakClear && cursor + settings.breakMinutes <= dayEnd) {
       blocks.push({
         id: crypto.randomUUID(),
         kind: 'break',
@@ -74,22 +114,51 @@ function fillLane(
  * Two-lane generator: focus activities fill the Focus lane with optional breaks;
  * background activities fill the Parallel lane concurrently, both starting at dayStart.
  */
-export function generateSchedule(activities: Activity[], settings: Settings): ScheduleResult {
-  if (activities.length === 0 || parseHM(settings.dayEnd) <= parseHM(settings.dayStart)) {
-    return { blocks: [], unscheduled: [] }
-  }
+export function generateSchedule(
+  activities: Activity[],
+  settings: Settings,
+  options: GenerateOptions = {}
+): ScheduleResult {
+  const dayStart = parseHM(settings.dayStart)
+  const dayEnd = parseHM(settings.dayEnd)
+  if (dayEnd <= dayStart) return { blocks: [], unscheduled: [] }
+
+  // only anchors inside the day window matter; Fajr at 5am is real but has no
+  // bearing on an afternoon that starts at three
+  const anchors = (options.anchors ?? [])
+    .filter((a) => a.end > dayStart && a.start < dayEnd)
+    .sort((x, y) => x.start - y.start)
+
+  const anchorBlocks: ScheduleBlock[] = anchors.map((a) => ({
+    id: crypto.randomUUID(),
+    kind: 'anchor' as const,
+    lane: 'focus' as const,
+    activityId: null,
+    name: a.name,
+    start: formatHM(a.start),
+    end: formatHM(a.end),
+    overflow: false,
+    status: 'planned' as const,
+    actualMinutes: null
+  }))
+
+  if (activities.length === 0) return { blocks: anchorBlocks, unscheduled: [] }
+
   const focus = fillLane(
     activities.filter((a) => a.mode === 'focus'),
     'focus',
-    settings
+    settings,
+    anchors
   )
   const parallel = fillLane(
     activities.filter((a) => a.mode === 'background'),
     'parallel',
-    settings
+    settings,
+    // the parallel lane runs straight through anchors on purpose
+    []
   )
   return {
-    blocks: [...focus.blocks, ...parallel.blocks],
+    blocks: [...anchorBlocks, ...focus.blocks, ...parallel.blocks],
     unscheduled: [...focus.unscheduled, ...parallel.unscheduled]
   }
 }

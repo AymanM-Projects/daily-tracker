@@ -17,6 +17,7 @@ import type {
   DateKey,
   DayData,
   JournalEntry,
+  PrayerSettings,
   Priority,
   RecurringTask,
   ScheduleBlock,
@@ -58,6 +59,7 @@ export type Action =
   | { type: 'addJournalEntry'; date: DateKey; text: string }
   | { type: 'setSchedule'; date: DateKey; blocks: ScheduleBlock[]; unscheduled: string[] }
   | { type: 'updateSettings'; patch: Partial<Settings> }
+  | { type: 'updatePrayer'; patch: Partial<PrayerSettings> }
   | { type: 'startTimer'; date: DateKey; blockId: string }
   | { type: 'pauseTimer' }
   | { type: 'resumeTimer' }
@@ -115,8 +117,8 @@ function applyBlockStatus(
 ): AppData {
   return withDay(data, date, (day) => {
     const block = day.schedule?.find((b) => b.id === blockId)
-    // breaks are not markable
-    if (!block || block.kind === 'break') return day
+    // neither breaks nor prayer anchors are the user's to mark done or skip
+    if (!block || block.kind !== 'activity') return day
     const actual = actualMinutes === undefined ? block.actualMinutes : actualMinutes
     const withStatus = mapBlock(day, blockId, (b) => ({ ...b, status, actualMinutes: actual }))
     return { ...withStatus, journal: syncBlockJournal(day, block, status, actual) }
@@ -324,6 +326,11 @@ function reducer(state: State, action: Action): State {
         ...state,
         data: { ...state.data, settings: { ...state.data.settings, ...action.patch } }
       }
+    case 'updatePrayer':
+      return {
+        ...state,
+        data: { ...state.data, prayer: { ...state.data.prayer, ...action.patch } }
+      }
     case 'startTimer':
       // starting a new block abandons any previous run rather than stacking timers
       return {
@@ -399,6 +406,7 @@ interface DataContextValue {
   activities: Activity[]
   recurringTasks: RecurringTask[]
   settings: Settings
+  prayer: PrayerSettings
 }
 
 const DataContext = createContext<DataContextValue | null>(null)
@@ -447,7 +455,8 @@ export function DataProvider({ children }: { children: ReactNode }): React.JSX.E
       today: getDay(state.data, state.activeDate),
       activities: state.data.activities,
       recurringTasks: state.data.recurringTasks,
-      settings: state.data.settings
+      settings: state.data.settings,
+      prayer: state.data.prayer
     }),
     [state]
   )

@@ -1,11 +1,11 @@
 import type { AppData } from './types'
-import { defaultActivitySet, defaultSettings } from './defaults'
+import { defaultActivitySet, defaultPrayerSettings, defaultSettings } from './defaults'
 
 /**
  * Bump this whenever the on-disk shape changes, and add a matching step to the
  * chain in `migrate()`. `src/main/store.ts` backs the file up before applying.
  */
-export const CURRENT_VERSION = 4
+export const CURRENT_VERSION = 5
 
 type AnyData = Record<string, unknown>
 
@@ -120,6 +120,24 @@ function v3ToV4(data: AnyData): AnyData {
 }
 
 /**
+ * v5 adds prayer settings, so the generator can route work around fixed
+ * obligations instead of scheduling straight over them.
+ *
+ * `backlog` is created empty here even though nothing reads it yet: the standing
+ * task list lands next and will only need to *move* data, not also add a field.
+ * Existing settings are spread over the defaults so a partially-written prayer
+ * block from a future build is never clobbered.
+ */
+function v4ToV5(data: AnyData): AnyData {
+  return {
+    ...data,
+    version: 5,
+    backlog: asArray(data.backlog),
+    prayer: { ...defaultPrayerSettings(), ...asRecord(data.prayer) }
+  }
+}
+
+/**
  * Upgrades a parsed document to CURRENT_VERSION. Steps run in sequence, so a
  * document several versions behind walks through each one in turn.
  */
@@ -128,5 +146,6 @@ export function migrate(raw: AnyData): AppData {
   if (((data.version as number) ?? 1) === 1) data = v1ToV2(data)
   if ((data.version as number) === 2) data = v2ToV3(data)
   if ((data.version as number) === 3) data = v3ToV4(data)
+  if ((data.version as number) === 4) data = v4ToV5(data)
   return data as unknown as AppData
 }

@@ -92,6 +92,19 @@ A monthly rule set past the end of a short month clamps to that month's last day
 
 The auto-journal link is the important one: `toggleChecklistItem` inserts a `JournalEntry` with `kind: 'auto'` and `checklistItemId` set when an item is checked, and removes that linked entry when it's unchecked. Deleting a checklist item deliberately keeps its journal entry — completed work stays in history. Keep this rule in the reducer rather than in pane components so it holds for every caller.
 
+### Clock display vs clock storage
+
+`formatHM` is a **storage** format: `schedule.ts` uses it to write `block.start` / `block.end`, which persist as `"09:00"` and are read back with `parseHM`. `formatClock` / `formatClockMinutes` are the **display** helpers that render 12-hour (`"9:00 AM"`). Never render with `formatHM`, and never store with `formatClock` — swapping them corrupts every saved schedule.
+
+### Prayer anchors
+
+`src/shared/prayer.ts` computes prayer times from solar geometry — hand-written, no package, pure. `PrayerSettings` on `AppData` holds the location (Richmond VA), the method angles, and `asrFactor`.
+
+- **No timezone library, on purpose.** Times are computed in UT and shifted by `Date.getTimezoneOffset()` _for that date_, which already returns −5h in January and −4h in August. This assumes the machine's clock matches the zone the user prays in.
+- **`schedule.ts` knows nothing about prayer.** It takes `GenerateOptions.anchors` as plain `{name, start, end}` data; `SchedulePane` resolves prayer times and passes them in. Keep that seam — any future fixed commitment (class, work shift) becomes an anchor with no change to the generator.
+- **Anchors block the focus lane only.** A 3D print or vibecoding run keeps going through salah, which is the point of the parallel lane.
+- Anchors are not markable — `applyBlockStatus` refuses anything where `kind !== 'activity'`.
+
 ### Two-lane schedule generation
 
 `src/shared/schedule.ts` is a pure function and the only place scheduling logic belongs. Activities split by `mode`: `'focus'` fills the Focus lane (with optional 10-minute breaks between consecutive items), `'background'` fills the Parallel lane. **Both lanes start at `dayStart`** — that overlap is the feature, letting a vibecoding session or 3D print run concurrently with focused work. Within a lane, sort is priority → duration → `createdAt`.

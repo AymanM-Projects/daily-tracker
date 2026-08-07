@@ -218,6 +218,58 @@ textarea {
   font-family: var(--font-mono);
 }
 
+/* ---------- Prayer times ---------- */
+
+.prayer-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.prayer-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 9px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  transition:
+    background 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.prayer-row:hover {
+  border-color: var(--border-strong);
+}
+
+.prayer-row.on {
+  background: rgba(167, 139, 250, 0.13);
+  border-color: rgba(167, 139, 250, 0.4);
+  color: #c4b5fd;
+}
+
+.prayer-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.prayer-name {
+  flex: 1;
+  text-align: left;
+  font-weight: 600;
+}
+
+.prayer-time {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ---------- Repeating task rules ---------- */
 
 .recur-form {
@@ -844,23 +896,32 @@ textarea.field {
   color: var(--parallel);
 }
 
+/* gutter is sized for a 12-hour label ("12:00 PM"), which is wider than "12:00" */
 .timeline {
   position: relative;
-  padding-left: 40px;
+  padding-left: 54px;
+  padding-top: 7px;
   flex-shrink: 0;
 }
 
 .hourline {
   position: absolute;
-  left: 40px;
+  left: 54px;
   right: 0;
   border-top: 1px solid rgba(148, 163, 184, 0.09);
 }
 
+/*
+ * Sits in the gutter, not over the lanes. `left: 0` was resolved against
+ * .hourline, which already starts at the gutter edge, so labels overlapped the
+ * blocks — visible but easy to miss until 12-hour labels made them wider.
+ */
 .hourline-label {
   position: absolute;
-  left: 0;
+  right: 100%;
+  margin-right: 6px;
   transform: translateY(-50%);
+  white-space: nowrap;
   font-family: var(--font-mono);
   font-size: 9px;
   color: var(--text-muted);
@@ -916,6 +977,29 @@ button.block:hover {
 .block.parallel {
   border-left-color: var(--parallel);
   background: var(--parallel-dim);
+}
+
+/*
+ * Prayer anchors: fixed obligations, not work. Violet keeps them clearly apart
+ * from both lane colours, and the dashed edge reads as "not yours to move".
+ */
+.block.anchor {
+  background: rgba(167, 139, 250, 0.14);
+  border: 1px dashed rgba(167, 139, 250, 0.5);
+  border-left: 3px solid #a78bfa;
+  color: var(--text-secondary);
+}
+
+.block.anchor .block-name {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #c4b5fd;
+  font-size: 11px;
+}
+
+.block.anchor .block-time {
+  color: rgba(196, 181, 253, 0.75);
 }
 
 .block.break {

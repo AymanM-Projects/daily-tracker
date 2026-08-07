@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { motion } from 'motion/react'
 import type { BlockStatus, DateKey, ScheduleBlock } from '@shared/types'
+import { formatClock } from '@shared/time'
 import { useData } from '../state/DataContext'
 import { useTimer } from '../hooks/useTimer'
 import { CheckIcon, PauseIcon, PlayIcon, SkipIcon, XIcon } from './icons'
@@ -61,7 +62,7 @@ function BlockSheet({ block, date, onClose }: BlockSheetProps): React.JSX.Elemen
           <div>
             <p className="sheet-title">{block.name}</p>
             <p className="sheet-sub">
-              {block.start}–{block.end}
+              {formatClock(block.start)} – {formatClock(block.end)}
               {block.actualMinutes !== null && ` · took ${block.actualMinutes}m`}
             </p>
           </div>
