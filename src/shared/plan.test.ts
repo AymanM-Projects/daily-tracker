@@ -17,6 +17,7 @@ function settings(over: Partial<Settings> = {}): Settings {
     freeBufferEnabled: false,
     freeBufferMinutes: 30,
     freeBufferEveryMinutes: 120,
+    theme: 'system',
     ...over
   }
 }

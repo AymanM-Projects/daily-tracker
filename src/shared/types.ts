@@ -192,14 +192,21 @@ export interface Settings {
   /**
    * Protected free time. Deliberately distinct from breaks: a break is a short
    * gap BETWEEN two activities, a free buffer is a longer protected block after
-   * a given amount of accumulated focus work. It also mops up whatever is left
-   * at the end of the day, so leftover time is visible rather than implied — and
-   * therefore safe from the backlog planner, which fills anything it can see.
+   * a given amount of accumulated focus work.
+   *
+   * It deliberately does NOT mop up the leftover tail of the day. `planBacklog`
+   * treats every focus-lane block as occupied regardless of kind — which is
+   * exactly why free time needs no code there to be protected — so protecting
+   * the tail would mean backlog work could never be placed on a generated day.
    */
   freeBufferEnabled: boolean
   freeBufferMinutes: number // length of each inserted buffer
   freeBufferEveryMinutes: number // insert one after this much focus work
+  /** 'system' follows the OS; the other two are an explicit override */
+  theme: ThemeChoice
 }
+
+export type ThemeChoice = 'system' | 'light' | 'dark'
 
 export interface DayData {
   checklist: ChecklistItem[]
@@ -271,6 +278,13 @@ export interface WidgetSummary {
   dayComplete: boolean
   timer: { blockId: string; name: string; display: string; paused: boolean } | null
   checklist: { done: number; total: number }
+  /**
+   * Carried across IPC because the popover is a separate document with its own
+   * bundle and no DataContext — it cannot read Settings for itself.
+   */
+  theme: ThemeChoice
+  /** true while the day is frozen, so the popover can stop implying progress */
+  paused: boolean
 }
 
 /**
@@ -291,7 +305,7 @@ export interface BacklogTask {
 }
 
 export interface AppData {
-  version: 7
+  version: 8
   activeTimer: ActiveTimer | null
   dayPause: DayPause | null
   projects: Project[]

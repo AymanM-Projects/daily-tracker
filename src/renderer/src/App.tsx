@@ -4,6 +4,8 @@ import { DataProvider } from './state/DataContext'
 import TitleBar from './components/TitleBar'
 import TabBar, { type TabId } from './components/TabBar'
 import DayPrompts from './components/DayPrompts'
+import { useTheme } from './hooks/useTheme'
+import { useData } from './state/DataContext'
 import SchedulePane from './panes/SchedulePane'
 import ChecklistPane from './panes/ChecklistPane'
 import ActivitiesPane from './panes/ActivitiesPane'
@@ -25,33 +27,42 @@ function renderPane(tab: TabId): React.JSX.Element {
   }
 }
 
+/** Inside the provider, since the choice lives in Settings. */
+function Themed({ children }: { children: React.ReactNode }): React.JSX.Element {
+  const { settings } = useData()
+  useTheme(settings.theme)
+  return <>{children}</>
+}
+
 function App(): React.JSX.Element {
   const [tab, setTab] = useState<TabId>('schedule')
 
   return (
     <MotionConfig reducedMotion="user">
       <DataProvider>
-        <div className="app">
-          <TitleBar />
-          <main className="app-main">
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={tab}
-                className="pane-wrap"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                transition={{ duration: 0.16, ease: 'easeOut' }}
-              >
-                {renderPane(tab)}
-              </motion.div>
-            </AnimatePresence>
-          </main>
-          <TabBar active={tab} onChange={setTab} />
-          {/* outside the pane AnimatePresence on purpose: panes unmount on tab
+        <Themed>
+          <div className="app">
+            <TitleBar />
+            <main className="app-main">
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={tab}
+                  className="pane-wrap"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.16, ease: 'easeOut' }}
+                >
+                  {renderPane(tab)}
+                </motion.div>
+              </AnimatePresence>
+            </main>
+            <TabBar active={tab} onChange={setTab} />
+            {/* outside the pane AnimatePresence on purpose: panes unmount on tab
               switch, and a prompt must survive that */}
-          <DayPrompts />
-        </div>
+            <DayPrompts />
+          </div>
+        </Themed>
       </DataProvider>
     </MotionConfig>
   )

@@ -86,6 +86,8 @@ export function buildWidgetSummary(
         : null,
     // counts the standing backlog rather than the retired per-day checklist:
     // "3 of 12 done" across everything outstanding, not just today's slice
+    theme: data.settings.theme,
+    paused: data.dayPause !== null,
     checklist: {
       done: data.backlog.filter((t) => t.done).length,
       total: data.backlog.length

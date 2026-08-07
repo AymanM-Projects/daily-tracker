@@ -41,6 +41,32 @@
     rgba(168, 180, 196, 0) 5px 11px
   );
   /*
+   * Prayer anchors. Violet keeps them clearly apart from both lane colours, and
+   * they are the one family that has to read as "not yours to move".
+   */
+  --anchor: #a78bfa;
+  --anchor-soft: #c4b5fd;
+  --anchor-text: rgba(196, 181, 253, 0.75);
+  --anchor-dim: rgba(167, 139, 250, 0.14);
+  --anchor-edge: rgba(167, 139, 250, 0.5);
+  --anchor-chip: rgba(167, 139, 250, 0.13);
+  --anchor-chip-edge: rgba(167, 139, 250, 0.4);
+  --warn-edge: rgba(251, 191, 36, 0.3);
+  /*
+   * Glows are the accent at low alpha. These were literal emerald until now —
+   * left over from the pre-cyan palette — while the ring beside them already
+   * used var(--accent), so a running block was ringed in one colour and haloed
+   * in another. Deriving them from the accent is what stops that recurring.
+   */
+  --glow-current: rgba(34, 211, 238, 0.25);
+  --glow-running: rgba(34, 211, 238, 0.4);
+  --scrim: rgba(0, 0, 0, 0.5);
+  --scrim-soft: rgba(15, 23, 42, 0.5);
+  --sheet-shadow: 0 -12px 32px rgba(0, 0, 0, 0.45);
+  --hairline: rgba(148, 163, 184, 0.09);
+  --widget-shadow: 0 10px 28px rgba(0, 0, 0, 0.55), 0 2px 6px rgba(0, 0, 0, 0.4);
+  --widget-well: rgba(0, 0, 0, 0.16);
+  /*
    * Bundled from @fontsource, never fetched: the CSP is default-src 'self' and
    * the app has to work offline. The system stack stays behind them so a failed
    * load degrades to the previous look rather than to Times.
@@ -52,4 +78,105 @@
   --radius-sm: 8px;
   --radius: 10px;
   --radius-lg: 14px;
+}
+
+/*
+ * Light theme.
+ *
+ * The lane colours are RE-PICKED, not inverted. Cyan #22d3ee and fuchsia #e879f9
+ * are tuned for a #12131a ground and fall to roughly 1.8:1 on white — unreadable
+ * as text and nearly invisible as a 3px bar. These are the same hues taken much
+ * darker: cyan 189deg and fuchsia 292deg, so the 104-degree gap that makes the
+ * two lanes distinguishable at a glance is preserved exactly. Check that gap,
+ * not the contrast ratio, if these are ever re-picked again.
+ *
+ * `[data-theme]` is set from Settings; the media query serves 'system'. Both
+ * selectors carry the same body so an explicit choice always wins over the OS.
+ */
+:root[data-theme='light'] {
+  --bg: #f4f5f8;
+  --surface: #ffffff;
+  --surface-2: #eceef3;
+  --surface-3: #dfe3ea;
+  --border: rgba(51, 65, 85, 0.16);
+  --border-strong: rgba(51, 65, 85, 0.3);
+  --text: #10131a;
+  --text-secondary: #333a47;
+  --text-muted: #5c6575;
+  --accent: #0e7490;
+  --accent-strong: #155e75;
+  --accent-dim: rgba(14, 116, 144, 0.12);
+  --accent-contrast: #ecfeff;
+  --parallel: #a21caf;
+  --parallel-dim: rgba(162, 28, 175, 0.1);
+  --danger: #be123c;
+  --danger-dim: rgba(190, 18, 60, 0.1);
+  --warn: #a16207;
+  --warn-dim: rgba(161, 98, 7, 0.12);
+  --warn-edge: rgba(161, 98, 7, 0.3);
+  --free-hatch: repeating-linear-gradient(
+    -45deg,
+    rgba(51, 65, 85, 0.09) 0 5px,
+    rgba(51, 65, 85, 0) 5px 11px
+  );
+  --anchor: #6d28d9;
+  --anchor-soft: #5b21b6;
+  --anchor-text: rgba(91, 33, 182, 0.8);
+  --anchor-dim: rgba(109, 40, 217, 0.1);
+  --anchor-edge: rgba(109, 40, 217, 0.4);
+  --anchor-chip: rgba(109, 40, 217, 0.1);
+  --anchor-chip-edge: rgba(109, 40, 217, 0.35);
+  --glow-current: rgba(14, 116, 144, 0.22);
+  --glow-running: rgba(14, 116, 144, 0.35);
+  --scrim: rgba(15, 23, 42, 0.28);
+  --scrim-soft: rgba(15, 23, 42, 0.06);
+  --sheet-shadow: 0 -12px 32px rgba(15, 23, 42, 0.16);
+  --hairline: rgba(51, 65, 85, 0.1);
+  --widget-shadow: 0 10px 28px rgba(15, 23, 42, 0.18), 0 2px 6px rgba(15, 23, 42, 0.1);
+  --widget-well: rgba(15, 23, 42, 0.05);
+}
+
+@media (prefers-color-scheme: light) {
+  :root[data-theme='system'] {
+    --bg: #f4f5f8;
+    --surface: #ffffff;
+    --surface-2: #eceef3;
+    --surface-3: #dfe3ea;
+    --border: rgba(51, 65, 85, 0.16);
+    --border-strong: rgba(51, 65, 85, 0.3);
+    --text: #10131a;
+    --text-secondary: #333a47;
+    --text-muted: #5c6575;
+    --accent: #0e7490;
+    --accent-strong: #155e75;
+    --accent-dim: rgba(14, 116, 144, 0.12);
+    --accent-contrast: #ecfeff;
+    --parallel: #a21caf;
+    --parallel-dim: rgba(162, 28, 175, 0.1);
+    --danger: #be123c;
+    --danger-dim: rgba(190, 18, 60, 0.1);
+    --warn: #a16207;
+    --warn-dim: rgba(161, 98, 7, 0.12);
+    --warn-edge: rgba(161, 98, 7, 0.3);
+    --free-hatch: repeating-linear-gradient(
+      -45deg,
+      rgba(51, 65, 85, 0.09) 0 5px,
+      rgba(51, 65, 85, 0) 5px 11px
+    );
+    --anchor: #6d28d9;
+    --anchor-soft: #5b21b6;
+    --anchor-text: rgba(91, 33, 182, 0.8);
+    --anchor-dim: rgba(109, 40, 217, 0.1);
+    --anchor-edge: rgba(109, 40, 217, 0.4);
+    --anchor-chip: rgba(109, 40, 217, 0.1);
+    --anchor-chip-edge: rgba(109, 40, 217, 0.35);
+    --glow-current: rgba(14, 116, 144, 0.22);
+    --glow-running: rgba(14, 116, 144, 0.35);
+    --scrim: rgba(15, 23, 42, 0.28);
+    --scrim-soft: rgba(15, 23, 42, 0.06);
+    --sheet-shadow: 0 -12px 32px rgba(15, 23, 42, 0.16);
+    --hairline: rgba(51, 65, 85, 0.1);
+    --widget-shadow: 0 10px 28px rgba(15, 23, 42, 0.18), 0 2px 6px rgba(15, 23, 42, 0.1);
+    --widget-well: rgba(15, 23, 42, 0.05);
+  }
 }

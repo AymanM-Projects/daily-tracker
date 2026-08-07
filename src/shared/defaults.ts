@@ -28,7 +28,8 @@ export function defaultSettings(): Settings {
     // shape until the user presses the button.
     freeBufferEnabled: true,
     freeBufferMinutes: 30,
-    freeBufferEveryMinutes: 120
+    freeBufferEveryMinutes: 120,
+    theme: 'system'
   }
 }
 
@@ -69,7 +70,7 @@ export function getDay(data: AppData, date: DateKey): DayData {
 
 export function defaultAppData(): AppData {
   return {
-    version: 7,
+    version: 8,
     activeTimer: null,
     dayPause: null,
     projects: [],

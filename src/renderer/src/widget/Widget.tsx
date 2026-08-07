@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTheme } from '../hooks/useTheme'
 import { MotionConfig, motion } from 'motion/react'
 import type { WidgetBlock, WidgetSummary } from '@shared/types'
 import { formatClock, formatMinutes } from '@shared/time'
@@ -137,6 +138,9 @@ function Content({ summary }: { summary: WidgetSummary }): React.JSX.Element {
 
 function Widget(): React.JSX.Element {
   const [summary, setSummary] = useState<WidgetSummary | null>(null)
+  // the popover is its own document with its own bundle, so it stamps its own
+  // <html> rather than inheriting the app window's attribute
+  useTheme(summary?.theme ?? 'system')
   const shellRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {

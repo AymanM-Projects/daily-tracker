@@ -77,7 +77,7 @@ textarea {
   padding: 0 12px 0 80px; /* clears macOS traffic lights */
   -webkit-app-region: drag;
   border-bottom: 1px solid var(--border);
-  background: rgba(15, 23, 42, 0.5);
+  background: var(--scrim-soft);
 }
 
 .titlebar button {
@@ -307,9 +307,9 @@ textarea {
 }
 
 .prayer-row.on {
-  background: rgba(167, 139, 250, 0.13);
-  border-color: rgba(167, 139, 250, 0.4);
-  color: #c4b5fd;
+  background: var(--anchor-chip);
+  border-color: var(--anchor-chip-edge);
+  color: var(--anchor-soft);
 }
 
 .prayer-row:focus-visible {
@@ -399,7 +399,7 @@ textarea {
   gap: 2px;
   padding: 8px 8px 10px;
   border-top: 1px solid var(--border);
-  background: rgba(15, 23, 42, 0.5);
+  background: var(--scrim-soft);
 }
 
 .tab {
@@ -966,7 +966,7 @@ textarea.field {
   position: absolute;
   left: 54px;
   right: 0;
-  border-top: 1px solid rgba(148, 163, 184, 0.09);
+  border-top: 1px solid var(--hairline);
 }
 
 /*
@@ -1042,9 +1042,9 @@ button.block:hover {
  * from both lane colours, and the dashed edge reads as "not yours to move".
  */
 .block.anchor {
-  background: rgba(167, 139, 250, 0.14);
-  border: 1px dashed rgba(167, 139, 250, 0.5);
-  border-left: 3px solid #a78bfa;
+  background: var(--anchor-dim);
+  border: 1px dashed var(--anchor-edge);
+  border-left: 3px solid var(--anchor);
   color: var(--text-secondary);
 }
 
@@ -1052,12 +1052,12 @@ button.block:hover {
   display: flex;
   align-items: center;
   gap: 5px;
-  color: #c4b5fd;
+  color: var(--anchor-soft);
   font-size: 11px;
 }
 
 .block.anchor .block-time {
-  color: rgba(196, 181, 253, 0.75);
+  color: var(--anchor-text);
 }
 
 .block.break {
@@ -1127,7 +1127,7 @@ button.block:hover {
 .block.current {
   box-shadow:
     0 0 0 1.5px var(--accent),
-    0 0 14px rgba(52, 211, 153, 0.25);
+    0 0 14px var(--glow-current);
 }
 
 /* --- block status --- */
@@ -1135,7 +1135,7 @@ button.block:hover {
 .block.running {
   box-shadow:
     0 0 0 1.5px var(--accent-strong),
-    0 0 18px rgba(52, 211, 153, 0.4);
+    0 0 18px var(--glow-running);
 }
 
 .block.is-done {
@@ -1314,7 +1314,7 @@ button.block:hover {
   padding: 9px 11px;
   border-radius: var(--radius-sm);
   background: var(--warn-dim);
-  border: 1px solid rgba(251, 191, 36, 0.3);
+  border: 1px solid var(--warn-edge);
 }
 
 .catchup-text {
@@ -1438,7 +1438,7 @@ button.block:hover {
 .sheet-scrim {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--scrim);
   z-index: 20;
 }
 
@@ -1455,7 +1455,7 @@ button.block:hover {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--sheet-shadow);
 }
 
 .sheet-head {
@@ -1614,7 +1614,7 @@ button.block:hover {
   flex-direction: column;
   gap: 7px;
   background: var(--warn-dim);
-  border: 1px solid rgba(251, 191, 36, 0.3);
+  border: 1px solid var(--warn-edge);
   border-radius: var(--radius-lg);
   padding: 10px 12px;
 }

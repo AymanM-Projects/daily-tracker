@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'motion/react'
-import type { AiStatus } from '@shared/types'
+import type { AiStatus, ThemeChoice } from '@shared/types'
 import { PRAYER_METHODS, prayerTimes } from '@shared/prayer'
 import { formatClockMinutes, todayKey } from '@shared/time'
 import { useData } from '../state/DataContext'
@@ -147,6 +147,26 @@ function SettingsPane(): React.JSX.Element {
           Nothing yet — this only stores the key. The review and suggestion features come next, and
           the app stays fully usable with no key at all.
         </p>
+      </div>
+
+      <h2 className="pane-title">Appearance</h2>
+      <div className="setting-card">
+        <div className="setting-row">
+          <span className="setting-label">Theme</span>
+          <div className="seg seg-sm" role="radiogroup" aria-label="Theme">
+            {(['system', 'light', 'dark'] as ThemeChoice[]).map((t) => (
+              <button
+                key={t}
+                className={settings.theme === t ? 'seg-btn active' : 'seg-btn'}
+                onClick={() => dispatch({ type: 'updateSettings', patch: { theme: t } })}
+                role="radio"
+                aria-checked={settings.theme === t}
+              >
+                {t === 'system' ? 'System' : t === 'light' ? 'Light' : 'Dark'}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       <h2 className="pane-title">

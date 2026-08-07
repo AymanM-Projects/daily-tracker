@@ -5,7 +5,7 @@ import { defaultActivitySet, defaultPrayerSettings, defaultSettings } from './de
  * Bump this whenever the on-disk shape changes, and add a matching step to the
  * chain in `migrate()`. `src/main/store.ts` backs the file up before applying.
  */
-export const CURRENT_VERSION = 7
+export const CURRENT_VERSION = 8
 
 type AnyData = Record<string, unknown>
 
@@ -228,6 +228,18 @@ function v6ToV7(data: AnyData): AnyData {
 }
 
 /**
+ * v8 adds the theme choice. Nothing else moves: `defaultSettings()` supplies
+ * 'system', which is what every existing document was already doing implicitly.
+ */
+function v7ToV8(data: AnyData): AnyData {
+  return {
+    ...data,
+    version: 8,
+    settings: { ...defaultSettings(), ...asRecord(data.settings) }
+  }
+}
+
+/**
  * Upgrades a parsed document to CURRENT_VERSION. Steps run in sequence, so a
  * document several versions behind walks through each one in turn.
  */
@@ -239,5 +251,6 @@ export function migrate(raw: AnyData): AppData {
   if ((data.version as number) === 4) data = v4ToV5(data)
   if ((data.version as number) === 5) data = v5ToV6(data)
   if ((data.version as number) === 6) data = v6ToV7(data)
+  if ((data.version as number) === 7) data = v7ToV8(data)
   return data as unknown as AppData
 }

@@ -374,3 +374,29 @@ describe('migrate v6 -> v7', () => {
     expect(migrate(v6Fixture()).version).toBe(CURRENT_VERSION)
   })
 })
+
+describe('v7 -> v8', () => {
+  it('defaults the theme to system', () => {
+    // walking the whole chain from v1, so this also covers the step being wired in
+    expect(migrate(v1Fixture()).settings.theme).toBe('system')
+  })
+
+  it('keeps a theme the user already chose', () => {
+    const raw = v1Fixture() as { settings: Record<string, unknown>; version: number }
+    raw.version = 7
+    raw.settings.theme = 'light'
+    expect(migrate(raw as never).settings.theme).toBe('light')
+  })
+
+  it('leaves everything else on Settings alone', () => {
+    const raw = v1Fixture() as { settings: Record<string, unknown>; version: number }
+    raw.version = 7
+    raw.settings.dayStart = '07:30'
+    raw.settings.freeBufferMinutes = 45
+    expect(migrate(raw as never).settings).toMatchObject({
+      dayStart: '07:30',
+      freeBufferMinutes: 45,
+      theme: 'system'
+    })
+  })
+})
