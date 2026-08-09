@@ -1,10 +1,18 @@
 {
   "name": "daily-tracker",
   "version": "1.0.0",
-  "description": "An Electron application with React and TypeScript",
+  "description": "A macOS desktop widget that tracks daily activities, a checklist, a work journal, and an auto-generated two-lane day schedule.",
   "main": "./out/main/index.js",
-  "author": "example.com",
-  "homepage": "https://electron-vite.org",
+  "author": "Ayman",
+  "license": "MIT",
+  "homepage": "https://github.com/AymanM-Projects/daily-tracker#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AymanM-Projects/daily-tracker.git"
+  },
+  "bugs": {
+    "url": "https://github.com/AymanM-Projects/daily-tracker/issues"
+  },
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint --cache .",

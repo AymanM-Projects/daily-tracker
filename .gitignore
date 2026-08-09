@@ -7,3 +7,7 @@ out
 # intermediate for build/icon.icns; regenerate rather than commit
 build/icon.iconset
 *.log*
+
+# Claude Code session-management scratch files, not part of the project
+HANDOFF.md
+PROJECT-CONTEXT.md
