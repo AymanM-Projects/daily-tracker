@@ -5,7 +5,7 @@ import { defaultActivitySet, defaultPrayerSettings, defaultSettings } from './de
  * Bump this whenever the on-disk shape changes, and add a matching step to the
  * chain in `migrate()`. `src/main/store.ts` backs the file up before applying.
  */
-export const CURRENT_VERSION = 10
+export const CURRENT_VERSION = 11
 
 type AnyData = Record<string, unknown>
 
@@ -294,6 +294,21 @@ function v9ToV10(data: AnyData): AnyData {
 }
 
 /**
+ * v11 gives `BacklogTask` the same `projectId` link `Activity` has had since v2.
+ *
+ * Every existing task backfills to `projectId: null` — no history is invented by
+ * guessing a project for work that was never linked to one. Only new tasks, or
+ * ones the user edits afterward, ever get a real value here.
+ */
+function v10ToV11(data: AnyData): AnyData {
+  return {
+    ...data,
+    version: 11,
+    backlog: asArray(data.backlog).map((t) => ({ ...t, projectId: t.projectId ?? null }))
+  }
+}
+
+/**
  * Upgrades a parsed document to CURRENT_VERSION. Steps run in sequence, so a
  * document several versions behind walks through each one in turn.
  */
@@ -308,5 +323,6 @@ export function migrate(raw: AnyData): AppData {
   if ((data.version as number) === 7) data = v7ToV8(data)
   if ((data.version as number) === 8) data = v8ToV9(data)
   if ((data.version as number) === 9) data = v9ToV10(data)
+  if ((data.version as number) === 10) data = v10ToV11(data)
   return data as unknown as AppData
 }

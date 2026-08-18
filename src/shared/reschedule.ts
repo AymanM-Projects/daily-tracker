@@ -590,6 +590,7 @@ export function bankSpilled(
     makeId?: IdFactory
     now?: string
     priorityOf?: (activityId: string | null) => Priority
+    projectIdOf?: (activityId: string | null) => string | null
   } = {}
 ): BacklogTask[] {
   const mint = spilled.filter((s) => s.backlogTaskId === null && s.minutes > 0)
@@ -605,6 +606,7 @@ export function bankSpilled(
       priority: options.priorityOf?.(s.activityId) ?? (2 as Priority),
       estimateMinutes: s.minutes,
       dueDate: null,
+      projectId: options.projectIdOf?.(s.activityId) ?? null,
       done: false,
       completedAt: null,
       createdAt: now

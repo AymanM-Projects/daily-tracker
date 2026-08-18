@@ -155,6 +155,7 @@ describe('alreadyCarried', () => {
       priority: 2,
       estimateMinutes: 60,
       dueDate: null,
+      projectId: null,
       done: false,
       completedAt: null,
       createdAt: '2026-08-07T00:00:00.000Z',

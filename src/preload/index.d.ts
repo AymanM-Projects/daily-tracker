@@ -1,5 +1,12 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
-import type { AiStatus, AiTestResult, AppData, WidgetSummary } from '../shared/types'
+import type {
+  AiStatus,
+  AiTestResult,
+  AppData,
+  McpEntityCreated,
+  McpStatus,
+  WidgetSummary
+} from '../shared/types'
 
 export interface Api {
   loadData(): Promise<AppData>
@@ -13,6 +20,11 @@ export interface Api {
   widgetReady(): Promise<void>
   widgetResize(height: number): Promise<void>
   widgetOpenApp(): Promise<void>
+  mcpStatus(): Promise<McpStatus>
+  /** The bearer token, in the clear. Only call this from an explicit "Copy connection info" click. */
+  mcpRevealToken(): Promise<string>
+  /** Subscribe to MCP-originated creates; returns an unsubscribe function. */
+  onMcpEntityCreated(callback: (event: McpEntityCreated) => void): () => void
 }
 
 declare global {

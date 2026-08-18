@@ -353,6 +353,7 @@ export interface BacklogTask {
   priority: Priority
   estimateMinutes: number | null
   dueDate: DateKey | null // null = no deadline, do it whenever there's room
+  projectId: string | null // null = not tied to any project
   done: boolean
   completedAt: string | null
   createdAt: string
@@ -365,8 +366,36 @@ export interface BacklogTask {
   carriedFromBlockId?: string
 }
 
+/**
+ * What the Settings pane is allowed to know about the embedded MCP server —
+ * enough to show connection status and the URL, never the bearer token. The
+ * token only ever crosses IPC through the narrow `mcp:reveal-token` handler,
+ * fired on an explicit "Copy connection info" click.
+ */
+export interface McpStatus {
+  running: boolean
+  port: number | null
+  url: string | null // e.g. 'http://127.0.0.1:8787/mcp', safe to show — carries no secret
+}
+
+/**
+ * Pushed from main to the renderer on `mcp:entity-created` whenever an
+ * external Claude session creates something through the embedded MCP server.
+ *
+ * This is the fix for the clobbering problem: `store.ts` alone isn't enough
+ * while the app window is open, because `DataContext` sends its whole
+ * in-memory document back on every reducer commit and would otherwise
+ * silently erase an MCP-originated write on the very next save. The
+ * reducer's `externalEntityCreated` case absorbs this as a pure append, the
+ * same shape `addActivity`/`addBacklogTask` already use.
+ */
+export type McpEntityCreated =
+  | { kind: 'backlogTask'; task: BacklogTask }
+  | { kind: 'activity'; activity: Activity }
+  | { kind: 'project'; project: Project }
+
 export interface AppData {
-  version: 10
+  version: 11
   activeTimer: ActiveTimer | null
   dayPause: DayPause | null
   projects: Project[]

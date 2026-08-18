@@ -400,3 +400,67 @@ describe('v7 -> v8', () => {
     })
   })
 })
+
+describe('migrate v10 -> v11', () => {
+  function v10Fixture(): Record<string, unknown> {
+    return {
+      version: 10,
+      projects: [],
+      activitySets: [],
+      activities: [],
+      recurringTasks: [],
+      routines: [],
+      settings: {},
+      backlog: [
+        {
+          id: 't1',
+          text: 'Ship it',
+          priority: 2,
+          estimateMinutes: 30,
+          dueDate: null,
+          done: false,
+          completedAt: null,
+          createdAt: '2026-08-06T14:00:00.000Z'
+        }
+      ],
+      days: {}
+    }
+  }
+
+  it('backfills projectId: null on every existing backlog task', () => {
+    const out = migrate(v10Fixture())
+    expect(out.version).toBe(CURRENT_VERSION)
+    expect(out.backlog[0].projectId).toBeNull()
+  })
+
+  it('loses nothing else on the task', () => {
+    const out = migrate(v10Fixture())
+    expect(out.backlog[0]).toMatchObject({
+      id: 't1',
+      text: 'Ship it',
+      priority: 2,
+      estimateMinutes: 30,
+      done: false
+    })
+  })
+
+  it('does not clobber a projectId a newer document already set', () => {
+    const raw = v10Fixture() as { backlog: Record<string, unknown>[] }
+    raw.backlog[0].projectId = 'proj-1'
+    expect(migrate(raw as never).backlog[0].projectId).toBe('proj-1')
+  })
+
+  it('survives an empty backlog', () => {
+    const out = migrate({ version: 10, backlog: [], days: {} })
+    expect(out.version).toBe(CURRENT_VERSION)
+    expect(out.backlog).toEqual([])
+  })
+
+  it('reaches the current version walking the whole chain from v1', () => {
+    // v1Fixture has no projects field at all until v1ToV2 seeds it — this proves
+    // the new step is wired into the chain, not just callable on its own
+    const out = migrate(v1Fixture())
+    expect(out.version).toBe(11)
+    expect(out.backlog[0].projectId).toBeNull()
+  })
+})

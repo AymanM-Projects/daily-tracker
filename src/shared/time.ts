@@ -96,6 +96,22 @@ export function formatTimestamp(iso: string): string {
 }
 
 /**
+ * True for a well-formed 'YYYY-MM-DD' string naming a real calendar date —
+ * `'2026-02-30'` fails even though it matches the shape, because rolling it
+ * through `Date` and reading the parts back must land on the same day.
+ *
+ * The UI never needed this: every date it produces comes from a picker, which
+ * cannot construct a malformed one. An MCP write can send anything, so this is
+ * the runtime gate `mcpWrites.ts` validates `dueDate`/`deadline` against.
+ */
+export function isValidDateKey(value: string): value is DateKey {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const [y, m, d] = value.split('-').map(Number)
+  const date = new Date(y, m - 1, d)
+  return date.getFullYear() === y && date.getMonth() === m - 1 && date.getDate() === d
+}
+
+/**
  * Whole days from `from` to `to`, negative when `to` is already past.
  *
  * Built on local midnights rather than raw millisecond subtraction, so a DST

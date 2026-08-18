@@ -18,8 +18,10 @@ import type {
   DayData,
   DayPause,
   JournalEntry,
+  McpEntityCreated,
   PrayerSettings,
   Priority,
+  Project,
   RecurringTask,
   Routine,
   ScheduleBlock,
@@ -59,6 +61,7 @@ export type Action =
       priority: Priority
       mode: ActivityMode
       dueDate: DateKey | null
+      projectId: string | null
     }
   | { type: 'updateActivity'; activity: Activity }
   | { type: 'deleteActivity'; id: string }
@@ -69,6 +72,7 @@ export type Action =
       estimateMinutes: number | null
       priority: Priority
       dueDate: DateKey | null
+      projectId: string | null
     }
   | { type: 'toggleBacklogTask'; date: DateKey; id: string }
   | { type: 'updateBacklogTask'; date: DateKey; task: BacklogTask }
@@ -84,6 +88,15 @@ export type Action =
   | { type: 'addRoutine'; routine: Omit<Routine, 'id' | 'createdAt'> }
   | { type: 'updateRoutine'; routine: Routine }
   | { type: 'deleteRoutine'; id: string }
+  | { type: 'addProject'; project: Omit<Project, 'id' | 'createdAt' | 'archived'> }
+  | { type: 'updateProject'; project: Project }
+  /**
+   * Hard delete. Unlinks rather than blocks: any Activity or BacklogTask still
+   * pointing at this project gets `projectId: null` in the same commit, so
+   * nothing is left holding a dangling id — the same dangling-reference handling
+   * the rest of the app already uses.
+   */
+  | { type: 'deleteProject'; id: string }
   | { type: 'addJournalEntry'; date: DateKey; text: string }
   /**
    * Rewrite an entry's text. An auto entry becomes `manual` and loses its link:
@@ -143,6 +156,14 @@ export type Action =
   /** "something came up" — freeze the day and the running block together */
   | { type: 'pauseDay'; date: DateKey }
   | { type: 'resumeDay' }
+  /**
+   * An external Claude session created this through the embedded MCP server.
+   * Pure append, the same shape `addActivity`/`addBacklogTask` already use —
+   * this is what lets the renderer's in-memory copy absorb an MCP-originated
+   * write instead of silently erasing it on its own next `saveData`. See
+   * `src/main/mcp-server.ts` for the other half of this fix.
+   */
+  | { type: 'externalEntityCreated'; event: McpEntityCreated }
 
 function withDay(data: AppData, date: DateKey, mutate: (day: DayData) => DayData): AppData {
   return { ...data, days: { ...data.days, [date]: mutate(getDay(data, date)) } }
@@ -227,6 +248,7 @@ function applyRecurring(data: AppData, date: DateKey): AppData {
     priority: 2,
     estimateMinutes: rule.estimateMinutes,
     dueDate: date,
+    projectId: null, // recurring rules aren't given project linkage in this phase
     done: false,
     completedAt: null,
     createdAt: now,
@@ -271,6 +293,7 @@ function applyCarryForward(data: AppData, today: DateKey): AppData {
         priority: work.priority,
         estimateMinutes: work.estimateMinutes,
         dueDate: work.dueDate,
+        projectId: null, // same deliberate drop as priority/dueDate above
         done: false,
         completedAt: null,
         createdAt: now,
@@ -405,7 +428,7 @@ function reducer(state: State, action: Action): State {
         priority: action.priority,
         mode: action.mode,
         dueDate: action.dueDate,
-        projectId: null, // wired to the UI in Phase 2
+        projectId: action.projectId,
         createdAt: new Date().toISOString()
       }
       return {
@@ -438,6 +461,7 @@ function reducer(state: State, action: Action): State {
         priority: action.priority,
         estimateMinutes: action.estimateMinutes,
         dueDate: action.dueDate,
+        projectId: action.projectId,
         done: false,
         completedAt: null,
         createdAt: new Date().toISOString()
@@ -522,6 +546,41 @@ function reducer(state: State, action: Action): State {
       return {
         ...state,
         data: { ...state.data, routines: state.data.routines.filter((r) => r.id !== action.id) }
+      }
+    case 'addProject': {
+      const project: Project = {
+        ...action.project,
+        id: crypto.randomUUID(),
+        archived: false,
+        createdAt: new Date().toISOString()
+      }
+      return { ...state, data: { ...state.data, projects: [...state.data.projects, project] } }
+    }
+    // Full-record replace, exactly like updateRoutine — this is also how
+    // archiving/unarchiving happens, by flipping `archived` on the same object.
+    case 'updateProject':
+      return {
+        ...state,
+        data: {
+          ...state.data,
+          projects: state.data.projects.map((p) =>
+            p.id === action.project.id ? action.project : p
+          )
+        }
+      }
+    case 'deleteProject':
+      return {
+        ...state,
+        data: {
+          ...state.data,
+          projects: state.data.projects.filter((p) => p.id !== action.id),
+          activities: state.data.activities.map((a) =>
+            a.projectId === action.id ? { ...a, projectId: null } : a
+          ),
+          backlog: state.data.backlog.map((t) =>
+            t.projectId === action.id ? { ...t, projectId: null } : t
+          )
+        }
       }
     case 'addRecurringTask': {
       const task: RecurringTask = {
@@ -732,6 +791,7 @@ function reducer(state: State, action: Action): State {
             priority: source?.priority ?? 2,
             estimateMinutes: action.minutes,
             dueDate: null,
+            projectId: source?.projectId ?? null,
             done: false,
             completedAt: null,
             createdAt: new Date().toISOString()
@@ -813,7 +873,8 @@ function reducer(state: State, action: Action): State {
         { minChunk: PLAN_DEFAULTS.minChunkMinutes }
       )
       const backlog = bankSpilled(spilled, cleared.backlog, {
-        priorityOf: (id) => cleared.activities.find((a) => a.id === id)?.priority ?? 2
+        priorityOf: (id) => cleared.activities.find((a) => a.id === id)?.priority ?? 2,
+        projectIdOf: (id) => cleared.activities.find((a) => a.id === id)?.projectId ?? null
       })
 
       const next = withDay({ ...cleared, backlog }, pause.dateKey, (d) => ({
@@ -833,6 +894,26 @@ function reducer(state: State, action: Action): State {
           }))
         )
       }
+    case 'externalEntityCreated': {
+      const { event } = action
+      switch (event.kind) {
+        case 'backlogTask':
+          return {
+            ...state,
+            data: { ...state.data, backlog: [...state.data.backlog, event.task] }
+          }
+        case 'activity':
+          return {
+            ...state,
+            data: { ...state.data, activities: [...state.data.activities, event.activity] }
+          }
+        case 'project':
+          return {
+            ...state,
+            data: { ...state.data, projects: [...state.data.projects, event.project] }
+          }
+      }
+    }
   }
 }
 
@@ -844,6 +925,7 @@ interface DataContextValue {
   recurringTasks: RecurringTask[]
   routines: Routine[]
   backlog: BacklogTask[]
+  projects: Project[]
   settings: Settings
   prayer: PrayerSettings
 }
@@ -859,6 +941,15 @@ export function DataProvider({ children }: { children: ReactNode }): React.JSX.E
 
   useEffect(() => {
     window.api.loadData().then((data) => dispatch({ type: 'hydrate', data }))
+  }, [])
+
+  // MCP-originated creates — absorbed as a pure append so an external
+  // Claude session's write survives the renderer's next `saveData`, whether
+  // it lands before or after this window has hydrated
+  useEffect(() => {
+    return window.api.onMcpEntityCreated((event) =>
+      dispatch({ type: 'externalEntityCreated', event })
+    )
   }, [])
 
   // persist every committed change after hydration (skip the hydrate commit itself)
@@ -896,6 +987,7 @@ export function DataProvider({ children }: { children: ReactNode }): React.JSX.E
       recurringTasks: state.data.recurringTasks,
       routines: state.data.routines,
       backlog: state.data.backlog,
+      projects: state.data.projects,
       settings: state.data.settings,
       prayer: state.data.prayer
     }),

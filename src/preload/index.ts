@@ -1,6 +1,13 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import type { AiStatus, AiTestResult, AppData, WidgetSummary } from '../shared/types'
+import type {
+  AiStatus,
+  AiTestResult,
+  AppData,
+  McpEntityCreated,
+  McpStatus,
+  WidgetSummary
+} from '../shared/types'
 
 const api = {
   loadData: (): Promise<AppData> => ipcRenderer.invoke('data:load'),
@@ -21,7 +28,18 @@ const api = {
   },
   widgetReady: (): Promise<void> => ipcRenderer.invoke('widget:ready'),
   widgetResize: (height: number): Promise<void> => ipcRenderer.invoke('widget:resize', height),
-  widgetOpenApp: (): Promise<void> => ipcRenderer.invoke('widget:open-app')
+  widgetOpenApp: (): Promise<void> => ipcRenderer.invoke('widget:open-app'),
+  mcpStatus: (): Promise<McpStatus> => ipcRenderer.invoke('mcp:status'),
+  // only ever fetched on an explicit "Copy connection info" click — never polled or cached ambiently
+  mcpRevealToken: (): Promise<string> => ipcRenderer.invoke('mcp:reveal-token'),
+  // MCP-originated creates — main pushes, DataContext absorbs each as a pure append
+  onMcpEntityCreated: (callback: (event: McpEntityCreated) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, payload: McpEntityCreated): void => callback(payload)
+    ipcRenderer.on('mcp:entity-created', handler)
+    return () => {
+      ipcRenderer.removeListener('mcp:entity-created', handler)
+    }
+  }
 }
 
 if (process.contextIsolated) {

@@ -251,3 +251,13 @@ export function TargetIcon(props: IconProps): React.JSX.Element {
     </Svg>
   )
 }
+
+/** Projects — deliberately distinct from TargetIcon, which already means "Focus mode" elsewhere. */
+export function FlagIcon(props: IconProps): React.JSX.Element {
+  return (
+    <Svg {...props}>
+      <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+      <path d="M4 22V3" />
+    </Svg>
+  )
+}

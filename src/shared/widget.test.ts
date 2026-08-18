@@ -158,6 +158,7 @@ describe('buildWidgetSummary', () => {
         priority: 2,
         estimateMinutes: null,
         dueDate: KEY,
+        projectId: null,
         done: true,
         completedAt: null,
         createdAt: ''
@@ -168,6 +169,7 @@ describe('buildWidgetSummary', () => {
         priority: 2,
         estimateMinutes: null,
         dueDate: null, // an undated "someday" task still counts
+        projectId: null,
         done: false,
         completedAt: null,
         createdAt: ''

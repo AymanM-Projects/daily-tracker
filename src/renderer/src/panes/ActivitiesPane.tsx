@@ -6,7 +6,9 @@ import { formatDateLabel, todayKey } from '@shared/time'
 import { useData } from '../state/DataContext'
 import EmptyState from '../components/EmptyState'
 import UrgencyField from '../components/UrgencyField'
+import ProjectField from '../components/ProjectField'
 import {
+  FlagIcon,
   ListIcon,
   PencilIcon,
   PlusIcon,
@@ -27,12 +29,13 @@ const itemVariants = {
 }
 
 function ActivitiesPane(): React.JSX.Element {
-  const { activities, dispatch } = useData()
+  const { activities, projects, dispatch } = useData()
   const [name, setName] = useState('')
   const [duration, setDuration] = useState('30')
   const [priority, setPriority] = useState<Priority>(2)
   const [dueDate, setDueDate] = useState<DateKey | null>(null)
   const [mode, setMode] = useState<ActivityMode>('focus')
+  const [projectId, setProjectId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const today = todayKey()
 
@@ -45,6 +48,7 @@ function ActivitiesPane(): React.JSX.Element {
     setPriority(2)
     setDueDate(null)
     setMode('focus')
+    setProjectId(null)
     setEditingId(null)
   }
 
@@ -63,7 +67,8 @@ function ActivitiesPane(): React.JSX.Element {
             durationMinutes: durationNum,
             priority,
             dueDate,
-            mode
+            mode,
+            projectId
           }
         })
       }
@@ -74,7 +79,8 @@ function ActivitiesPane(): React.JSX.Element {
         durationMinutes: durationNum,
         priority,
         dueDate,
-        mode
+        mode,
+        projectId
       })
     }
     resetForm()
@@ -89,6 +95,7 @@ function ActivitiesPane(): React.JSX.Element {
     setPriority(activity.priority)
     setDueDate(activity.dueDate)
     setMode(activity.mode)
+    setProjectId(activity.projectId)
   }
 
   return (
@@ -127,6 +134,7 @@ function ActivitiesPane(): React.JSX.Element {
             setDueDate(next.dueDate)
           }}
         />
+        <ProjectField projectId={projectId} projects={projects} onChange={setProjectId} />
         <div>
           <span className="seg-label">Mode</span>
           <div className="seg" role="radiogroup" aria-label="Mode">
@@ -216,6 +224,12 @@ function ActivitiesPane(): React.JSX.Element {
                       <span className="chip chip-parallel">
                         <ZapIcon size={9} />
                         Parallel
+                      </span>
+                    )}
+                    {activity.projectId !== null && (
+                      <span className="chip chip-project">
+                        <FlagIcon size={9} />
+                        {projects.find((p) => p.id === activity.projectId)?.name ?? 'Project'}
                       </span>
                     )}
                   </div>

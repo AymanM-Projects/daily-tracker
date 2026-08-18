@@ -2,13 +2,15 @@ import { app, shell, BrowserWindow, ipcMain, Notification } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import type { AppData } from '../shared/types'
+import type { AppData, McpEntityCreated } from '../shared/types'
 import { nextTransition } from '../shared/agenda'
 import { minutesNow, todayKey } from '../shared/time'
 import { loadData, scheduleSave, flushPendingSave } from './store'
 import { getStatus, setApiKey } from './ai-config'
 import { testConnection } from './ai'
 import { destroyTray, initTray, refreshWidget } from './tray'
+import { getOrCreateToken } from './mcp-config'
+import { getMcpStatus, startMcpServer, stopMcpServer } from './mcp-server'
 
 let alarmTimeout: NodeJS.Timeout | null = null
 let mainWindow: BrowserWindow | null = null
@@ -104,6 +106,24 @@ function armNextTransition(): void {
   )
 }
 
+/**
+ * Pushes an MCP-originated create onto the renderer, if a window is open.
+ *
+ * This is the fix for the clobbering problem: an MCP write commits straight
+ * through `store.ts` (see `mcp-tools.ts`), but if the app window is open,
+ * `DataContext` still holds its own in-memory copy and sends the WHOLE
+ * document back on the renderer's very next reducer commit — silently
+ * erasing the MCP write the instant an ordinary UI action runs. Pushing the
+ * created entity here lets the reducer's `externalEntityCreated` case absorb
+ * it as a pure append, so the renderer's copy agrees with disk before its
+ * next save happens.
+ */
+function notifyMcpEntityCreated(event: McpEntityCreated): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('mcp:entity-created', event)
+  }
+}
+
 /** Reopen or refocus the app window — from the dock, or from the menu bar icon. */
 function showMainWindow(): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -139,6 +159,10 @@ app.whenReady().then(() => {
   ipcMain.handle('ai:status', () => getStatus())
   ipcMain.handle('ai:set-key', (_event, key: string | null) => setApiKey(key))
   ipcMain.handle('ai:test', (_event, candidateKey?: string) => testConnection(candidateKey))
+  // Status is safe to load ambiently; the token is only ever handed out on an
+  // explicit "Copy connection info" click, never sent unprompted.
+  ipcMain.handle('mcp:status', () => getMcpStatus())
+  ipcMain.handle('mcp:reveal-token', () => getOrCreateToken())
   armNextTransition()
 
   createWindow()
@@ -147,6 +171,8 @@ app.whenReady().then(() => {
   if (process.platform === 'darwin') {
     initTray(showMainWindow)
   }
+  // Unlike the tray, external Claude access has no platform guard.
+  startMcpServer(notifyMcpEntityCreated)
 
   app.on('activate', showMainWindow)
 })
@@ -157,6 +183,7 @@ app.on('before-quit', () => {
 
 app.on('will-quit', () => {
   destroyTray()
+  stopMcpServer()
 })
 
 app.on('window-all-closed', () => {

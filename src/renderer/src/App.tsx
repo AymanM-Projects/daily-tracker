@@ -10,6 +10,7 @@ import { useData } from './state/DataContext'
 import SchedulePane from './panes/SchedulePane'
 import ChecklistPane from './panes/ChecklistPane'
 import ActivitiesPane from './panes/ActivitiesPane'
+import ProjectsPane from './panes/ProjectsPane'
 import JournalPane from './panes/JournalPane'
 import SettingsPane from './panes/SettingsPane'
 
@@ -21,6 +22,8 @@ function renderPane(tab: TabId): React.JSX.Element {
       return <ChecklistPane />
     case 'activities':
       return <ActivitiesPane />
+    case 'projects':
+      return <ProjectsPane />
     case 'journal':
       return <JournalPane />
     case 'settings':

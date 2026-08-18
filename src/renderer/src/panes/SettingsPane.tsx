@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import type { AiStatus, ThemeChoice } from '@shared/types'
+import type { AiStatus, McpStatus, ThemeChoice } from '@shared/types'
 import { PRAYER_METHODS, prayerTimes } from '@shared/prayer'
 import { formatClockMinutes, todayKey } from '@shared/time'
 import { useData } from '../state/DataContext'
@@ -10,6 +10,8 @@ import { CheckIcon, MoonIcon, SparklesIcon, SunriseIcon, TrashIcon } from '../co
 type TestState =
   { kind: 'idle' } | { kind: 'testing' } | { kind: 'ok' } | { kind: 'error'; message: string }
 
+type CopyState = { kind: 'idle' } | { kind: 'copied' } | { kind: 'error' }
+
 function SettingsPane(): React.JSX.Element {
   const { settings, prayer, routines, dispatch } = useData()
   const [status, setStatus] = useState<AiStatus | null>(null)
@@ -17,11 +19,32 @@ function SettingsPane(): React.JSX.Element {
   const [reveal, setReveal] = useState(false)
   const [test, setTest] = useState<TestState>({ kind: 'idle' })
   const [showRoutines, setShowRoutines] = useState(false)
+  const [mcpStatus, setMcpStatus] = useState<McpStatus | null>(null)
+  const [copyState, setCopyState] = useState<CopyState>({ kind: 'idle' })
   const activeRoutines = routines.filter((r) => r.active).length
 
   useEffect(() => {
     void window.api.aiStatus().then(setStatus)
   }, [])
+
+  useEffect(() => {
+    void window.api.mcpStatus().then(setMcpStatus)
+  }, [])
+
+  // The token is only ever fetched here, on an explicit click — never polled
+  // or held in state ambiently, per the same rule ai-config.ts's key follows.
+  const copyConnectionInfo = async (): Promise<void> => {
+    if (!mcpStatus?.url) return
+    const token = await window.api.mcpRevealToken()
+    const text = `claude mcp add --transport http daily-tracker ${mcpStatus.url} --header "Authorization: Bearer ${token}"`
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopyState({ kind: 'copied' })
+      setTimeout(() => setCopyState({ kind: 'idle' }), 2500)
+    } catch {
+      setCopyState({ kind: 'error' })
+    }
+  }
 
   const save = async (): Promise<void> => {
     const next = await window.api.aiSetKey(draftKey)
@@ -347,6 +370,65 @@ function SettingsPane(): React.JSX.Element {
             aria-label="Break length in minutes"
           />
         </label>
+      </div>
+
+      <h2 className="pane-title">
+        <SparklesIcon size={12} />
+        Claude access
+      </h2>
+      <div className="setting-card">
+        <div className="setting-row">
+          <span className="setting-label">Status</span>
+          {mcpStatus === null ? (
+            <span className="chip">checking…</span>
+          ) : mcpStatus.running ? (
+            <span className="chip chip-auto">
+              <CheckIcon size={9} />
+              running
+            </span>
+          ) : (
+            <span className="chip">not running</span>
+          )}
+        </div>
+
+        {mcpStatus?.url && (
+          <div className="setting-row">
+            <span className="setting-label">URL</span>
+            <span className="mono">{mcpStatus.url}</span>
+          </div>
+        )}
+
+        <div className="setting-actions">
+          <span className="grow" />
+          <motion.button
+            className="btn-primary"
+            onClick={copyConnectionInfo}
+            disabled={!mcpStatus?.url}
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.95 }}
+            transition={{ type: 'spring', stiffness: 500, damping: 25 }}
+          >
+            Copy connection info
+          </motion.button>
+        </div>
+
+        {copyState.kind === 'copied' && (
+          <p className="hint hint-ok">
+            <CheckIcon size={11} /> Copied — paste into <code>claude mcp add</code> or your MCP
+            client&apos;s config.
+          </p>
+        )}
+        {copyState.kind === 'error' && (
+          <p className="hint hint-warn">Couldn&apos;t copy to the clipboard.</p>
+        )}
+
+        <p className="hint">
+          Lets an external Claude session (Claude Code, or Claude Desktop via{' '}
+          <code>mcp-remote</code>) read your journal, backlog, projects, and activities, and suggest
+          new to-dos, activities, or projects. It can never edit, finish, or delete anything that
+          already exists. Bound to this machine only — the token above is the only thing that ever
+          leaves it, and only when you copy it out.
+        </p>
       </div>
     </div>
   )

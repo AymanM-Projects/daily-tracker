@@ -8,7 +8,17 @@ import { useData } from '../state/DataContext'
 import EmptyState from '../components/EmptyState'
 import RecurringSheet from '../components/RecurringSheet'
 import UrgencyField from '../components/UrgencyField'
-import { CheckIcon, CheckSquareIcon, PlusIcon, RepeatIcon, TrashIcon } from '../components/icons'
+import ProjectField from '../components/ProjectField'
+import {
+  CheckIcon,
+  CheckSquareIcon,
+  FlagIcon,
+  PencilIcon,
+  PlusIcon,
+  RepeatIcon,
+  TrashIcon,
+  XIcon
+} from '../components/icons'
 
 /** Short forms, because a backlog chip has less room than the Activities card. */
 const SHORT_PRIORITY: Record<Priority, string> = { 1: 'High', 2: 'Med', 3: 'Low' }
@@ -37,11 +47,13 @@ function dueLabel(due: DateKey): string {
 }
 
 function ChecklistPane(): React.JSX.Element {
-  const { state, today: todayData, backlog, dispatch } = useData()
+  const { state, today: todayData, backlog, projects, dispatch } = useData()
   const [text, setText] = useState('')
   const [estimate, setEstimate] = useState('')
   const [priority, setPriority] = useState<Priority>(2)
   const [due, setDue] = useState<DateKey | null>(null)
+  const [projectId, setProjectId] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [showDone, setShowDone] = useState(false)
   const [showRecurring, setShowRecurring] = useState(false)
   const date = state.activeDate
@@ -91,38 +103,72 @@ function ChecklistPane(): React.JSX.Element {
 
   const totalLeft = open.reduce((sum, t) => sum + (t.estimateMinutes ?? 0), 0)
 
+  const resetForm = (): void => {
+    setText('')
+    setEstimate('')
+    setPriority(2)
+    setDue(null)
+    setProjectId(null)
+    setEditingId(null)
+  }
+
   const add = (e: React.FormEvent): void => {
     e.preventDefault()
     const trimmed = text.trim()
     if (!trimmed) return
     const mins = Number.parseInt(estimate, 10)
-    dispatch({
-      type: 'addBacklogTask',
-      date,
-      text: trimmed,
-      estimateMinutes: Number.isFinite(mins) && mins > 0 ? mins : null,
-      priority,
-      dueDate: due
-    })
-    setText('')
-    setEstimate('')
-    setDue(null)
+    const estimateMinutes = Number.isFinite(mins) && mins > 0 ? mins : null
+
+    if (editingId) {
+      const existing = backlog.find((t) => t.id === editingId)
+      if (existing) {
+        dispatch({
+          type: 'updateBacklogTask',
+          date,
+          task: { ...existing, text: trimmed, estimateMinutes, priority, dueDate: due, projectId }
+        })
+      }
+    } else {
+      dispatch({
+        type: 'addBacklogTask',
+        date,
+        text: trimmed,
+        estimateMinutes,
+        priority,
+        dueDate: due,
+        projectId
+      })
+    }
+    resetForm()
+  }
+
+  const startEdit = (id: string): void => {
+    const task = backlog.find((t) => t.id === id)
+    if (!task) return
+    setEditingId(id)
+    setText(task.text)
+    setEstimate(task.estimateMinutes !== null ? String(task.estimateMinutes) : '')
+    setPriority(task.priority)
+    setDue(task.dueDate)
+    setProjectId(task.projectId)
   }
 
   return (
     <div className="pane">
       <h2 className="pane-title">
-        Everything to do
-        {open.length > 0 && <span className="count">{open.length}</span>}
+        {editingId ? 'Edit task' : 'Everything to do'}
+        {!editingId && open.length > 0 && <span className="count">{open.length}</span>}
         <span className="grow" />
-        <button
-          className="btn-ghost"
-          onClick={() => setShowRecurring(true)}
-          aria-label="Manage repeating tasks"
-        >
-          <RepeatIcon size={13} />
-          Repeating
-        </button>
+        {!editingId && (
+          <button
+            className="btn-ghost"
+            onClick={() => setShowRecurring(true)}
+            aria-label="Manage repeating tasks"
+          >
+            <RepeatIcon size={13} />
+            Repeating
+          </button>
+        )}
       </h2>
 
       {totalLeft > 0 && <p className="budget">{formatMinutes(totalLeft)} of work on the list</p>}
@@ -153,10 +199,15 @@ function ChecklistPane(): React.JSX.Element {
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.92 }}
           transition={{ type: 'spring', stiffness: 500, damping: 25 }}
-          aria-label="Add task"
+          aria-label={editingId ? 'Save changes' : 'Add task'}
         >
-          <PlusIcon size={16} />
+          {editingId ? <CheckIcon size={16} /> : <PlusIcon size={16} />}
         </motion.button>
+        {editingId && (
+          <button type="button" className="icon-btn" onClick={resetForm} aria-label="Cancel edit">
+            <XIcon size={16} />
+          </button>
+        )}
       </form>
 
       <UrgencyField
@@ -168,6 +219,7 @@ function ChecklistPane(): React.JSX.Element {
           setDue(next.dueDate)
         }}
       />
+      <ProjectField projectId={projectId} projects={projects} onChange={setProjectId} />
 
       {todayBlocks.length > 0 && (
         <>
@@ -255,6 +307,12 @@ function ChecklistPane(): React.JSX.Element {
                       <span className={`chip chip-p${effectivePriority(task, today)}`}>
                         {SHORT_PRIORITY[effectivePriority(task, today)]}
                       </span>
+                      {task.projectId !== null && (
+                        <span className="chip chip-project">
+                          <FlagIcon size={8} />
+                          {projects.find((p) => p.id === task.projectId)?.name ?? 'Project'}
+                        </span>
+                      )}
                       {task.estimateMinutes !== null && (
                         <span className="chip chip-est">{formatMinutes(task.estimateMinutes)}</span>
                       )}
@@ -289,6 +347,13 @@ function ChecklistPane(): React.JSX.Element {
                       )}
                     </div>
                   </div>
+                  <button
+                    className="icon-btn"
+                    onClick={() => startEdit(task.id)}
+                    aria-label={`Edit ${task.text}`}
+                  >
+                    <PencilIcon size={14} />
+                  </button>
                   <button
                     className="icon-btn danger"
                     onClick={() => dispatch({ type: 'deleteBacklogTask', date, id: task.id })}

@@ -26,6 +26,9 @@ Built with Electron + React + TypeScript.
   without blocking background work.
 - **Light and dark themes**, a menu bar popover, and a small, always-on-top
   main window.
+- **External Claude access via MCP.** A local-only server lets Claude Code or
+  Claude Desktop read your journal/backlog/projects/activities and suggest
+  new to-dos, activities, or projects — create-only, never edit or delete.
 
 ## Requirements
 
@@ -79,6 +82,58 @@ claude
 
 Then just say something like *"install dependencies and start the dev
 server"* — Claude Code will read `CLAUDE.md` first and take it from there.
+
+## Connecting an external Claude session (MCP)
+
+The app runs a local MCP (Model Context Protocol) server over Streamable
+HTTP, bound to `127.0.0.1` only, so an external Claude session can read your
+journal, backlog, projects, and activities and suggest new to-dos,
+activities, or projects — without ever being able to edit, finish, or delete
+anything that already exists. It starts automatically with the app; see
+**Settings → Claude access** for its status, URL, and a "Copy connection
+info" button that copies a ready-to-run command with a fresh bearer token
+filled in (the token itself is never shown or sent anywhere else — it's
+generated once, encrypted with `safeStorage`, and only leaves the app on that
+click).
+
+### Claude Code
+
+Claude Code speaks Streamable HTTP natively:
+
+```bash
+claude mcp add --transport http daily-tracker http://127.0.0.1:8787/mcp \
+  --header "Authorization: Bearer <token>"
+```
+
+("Copy connection info" in Settings copies this exact command with the token
+filled in — just paste it.)
+
+### Claude Desktop
+
+Claude Desktop's connector UI only accepts `https://` URLs proxied through
+Anthropic's cloud, which can't reach `127.0.0.1`. The documented workaround
+is [`mcp-remote`](https://www.npmjs.com/package/mcp-remote), a small stdio→HTTP
+bridge that runs locally alongside Claude Desktop. Add this to
+`claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "daily-tracker": {
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "http://127.0.0.1:8787/mcp",
+        "--header",
+        "Authorization: Bearer <token>"
+      ]
+    }
+  }
+}
+```
+
+`mcp-remote` is a third-party tool outside this repo's control — worth
+hand-verifying against its current README if the connection doesn't come up.
 
 ## Known limitations
 

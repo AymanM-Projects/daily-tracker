@@ -496,6 +496,7 @@ describe('bankSpilled', () => {
     priority: 2,
     estimateMinutes: 120,
     dueDate: null,
+    projectId: null,
     done: false,
     completedAt: null,
     createdAt: '2026-08-01T00:00:00.000Z',
@@ -526,11 +527,42 @@ describe('bankSpilled', () => {
         priority: 1,
         estimateMinutes: 45,
         dueDate: null,
+        projectId: null,
         done: false,
         completedAt: null,
         createdAt: '2026-08-07T00:00:00.000Z'
       }
     ])
+  })
+
+  it('defaults the minted task to no project when projectIdOf is not given', () => {
+    const out = bankSpilled(
+      [{ name: 'Deep work', minutes: 45, backlogTaskId: null, activityId: 'act1' }],
+      [],
+      { makeId: ids('t'), now: '2026-08-07T00:00:00.000Z' }
+    )
+    expect(out[0].projectId).toBeNull()
+  })
+
+  it('carries the project forward from the source activity via projectIdOf', () => {
+    const out = bankSpilled(
+      [{ name: 'Deep work', minutes: 45, backlogTaskId: null, activityId: 'act1' }],
+      [],
+      { makeId: ids('t'), now: '2026-08-07T00:00:00.000Z', projectIdOf: () => 'proj-1' }
+    )
+    expect(out[0].projectId).toBe('proj-1')
+  })
+
+  it("passes the spilled block's activityId through to projectIdOf", () => {
+    const seen: (string | null)[] = []
+    bankSpilled([{ name: 'Deep work', minutes: 45, backlogTaskId: null, activityId: 'act1' }], [], {
+      makeId: ids('t'),
+      projectIdOf: (activityId) => {
+        seen.push(activityId)
+        return null
+      }
+    })
+    expect(seen).toEqual(['act1'])
   })
 
   it('returns the backlog unchanged when nothing needs minting', () => {
