@@ -290,6 +290,22 @@ export interface AiStatus {
 
 export type AiTestResult = { ok: true; data: { model: string } } | { ok: false; error: string }
 
+/**
+ * Result of comparing the running app against GitHub's latest release.
+ * `currentVersion` rides on both variants — from `app.getVersion()`, always
+ * available synchronously — so the UI can show "You're on 1.0.0" even when
+ * the network call itself failed.
+ */
+export type UpdateCheckResult =
+  | {
+      checked: true
+      currentVersion: string
+      latestVersion: string
+      updateAvailable: boolean
+      releaseUrl: string
+    }
+  | { checked: false; currentVersion: string; error: string }
+
 /** A single pending completion notification, owned by the main process. */
 export interface TimerAlarm {
   at: number // epoch ms

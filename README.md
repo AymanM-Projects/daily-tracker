@@ -148,6 +148,28 @@ hand-verifying against its current README if the connection doesn't come up.
   and renderer/UI changes are verified by running the app, not by a test
   suite.
 
+## Releasing a new version
+
+Settings → Updates checks GitHub's latest release against the running
+version and, if there's a newer one, opens the release page in your browser
+— true one-click auto-install isn't available here (macOS requires the app
+be code-signed for that, and this build isn't), so you still quit the old
+app and open the new one yourself.
+
+Publishing is manual and on demand — there's no CI. It uses
+electron-builder's `github` provider and the `gh` CLI session you're already
+authenticated with, rather than a separately managed token:
+
+```bash
+npm version <patch|minor|major>   # bumps package.json, commits, tags vX.Y.Z
+git push --follow-tags
+npm run release                    # typecheck + build + publish to GitHub Releases
+```
+
+`npm run release` publishes as a real, non-draft release — that's what
+GitHub's `/releases/latest` API (what the in-app checker polls) requires;
+drafts never show up there.
+
 ## Feedback
 
 This started as a personal project — I'm opening it up to get outside eyes

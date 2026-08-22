@@ -8,6 +8,7 @@ import { minutesNow, todayKey } from '../shared/time'
 import { loadData, scheduleSave, flushPendingSave } from './store'
 import { getStatus, setApiKey } from './ai-config'
 import { testConnection } from './ai'
+import { checkForUpdates } from './updates'
 import { destroyTray, initTray, refreshWidget } from './tray'
 import { getOrCreateToken } from './mcp-config'
 import { getMcpStatus, startMcpServer, stopMcpServer } from './mcp-server'
@@ -163,6 +164,20 @@ app.whenReady().then(() => {
   // explicit "Copy connection info" click, never sent unprompted.
   ipcMain.handle('mcp:status', () => getMcpStatus())
   ipcMain.handle('mcp:reveal-token', () => getOrCreateToken())
+  // Pull-based, like ai:test — a plain on-demand query, not a push channel.
+  ipcMain.handle('updates:check', () => checkForUpdates())
+  ipcMain.handle('updates:open-release', (_event, url: string) => {
+    // Defense in depth: the URL crosses back over IPC even though it
+    // originated from GitHub's own API response, so it's re-validated here
+    // rather than trusted just because the renderer sent it back unchanged.
+    try {
+      if (new URL(url).hostname === 'github.com') {
+        shell.openExternal(url)
+      }
+    } catch {
+      // malformed URL — nothing to open
+    }
+  })
   armNextTransition()
 
   createWindow()

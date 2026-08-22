@@ -6,6 +6,7 @@ import TabBar, { type TabId } from './components/TabBar'
 import DayPrompts from './components/DayPrompts'
 import { useTheme } from './hooks/useTheme'
 import { useAutopilot } from './hooks/useAutopilot'
+import { useUpdateCheck, type UpdateCheckState } from './hooks/useUpdateCheck'
 import { useData } from './state/DataContext'
 import SchedulePane from './panes/SchedulePane'
 import ChecklistPane from './panes/ChecklistPane'
@@ -14,7 +15,7 @@ import ProjectsPane from './panes/ProjectsPane'
 import JournalPane from './panes/JournalPane'
 import SettingsPane from './panes/SettingsPane'
 
-function renderPane(tab: TabId): React.JSX.Element {
+function renderPane(tab: TabId, updateCheck: UpdateCheckState): React.JSX.Element {
   switch (tab) {
     case 'schedule':
       return <SchedulePane />
@@ -27,7 +28,7 @@ function renderPane(tab: TabId): React.JSX.Element {
     case 'journal':
       return <JournalPane />
     case 'settings':
-      return <SettingsPane />
+      return <SettingsPane updateCheck={updateCheck} />
   }
 }
 
@@ -47,6 +48,13 @@ function Themed({ children }: { children: React.ReactNode }): React.JSX.Element 
 
 function App(): React.JSX.Element {
   const [tab, setTab] = useState<TabId>('schedule')
+  // IPC-only, touches no AppData — called here rather than inside Themed so
+  // it doesn't wait on DataProvider.
+  const updateCheck = useUpdateCheck()
+  const updateAvailable =
+    updateCheck.result?.checked === true &&
+    updateCheck.result.updateAvailable &&
+    !updateCheck.dismissed
 
   return (
     <MotionConfig reducedMotion="user">
@@ -64,11 +72,11 @@ function App(): React.JSX.Element {
                   exit={{ opacity: 0, y: -10 }}
                   transition={{ duration: 0.16, ease: 'easeOut' }}
                 >
-                  {renderPane(tab)}
+                  {renderPane(tab, updateCheck)}
                 </motion.div>
               </AnimatePresence>
             </main>
-            <TabBar active={tab} onChange={setTab} />
+            <TabBar active={tab} onChange={setTab} updateAvailable={updateAvailable} />
             {/* outside the pane AnimatePresence on purpose: panes unmount on tab
               switch, and a prompt must survive that */}
             <DayPrompts />

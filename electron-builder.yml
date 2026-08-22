@@ -42,5 +42,11 @@ appImage:
   artifactName: ${name}-${version}.${ext}
 npmRebuild: false
 publish:
-  provider: generic
-  url: https://example.com/auto-updates
+  provider: github
+  owner: AymanM-Projects
+  repo: daily-tracker
+  # electron-builder defaults new releases to draft, which GitHub's
+  # /releases/latest API (what the in-app update checker polls) never returns.
+  # releaseType: release is what makes `npm run release` actually visible to
+  # the app the moment it finishes.
+  releaseType: release

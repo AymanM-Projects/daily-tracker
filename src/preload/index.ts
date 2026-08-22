@@ -6,6 +6,7 @@ import type {
   AppData,
   McpEntityCreated,
   McpStatus,
+  UpdateCheckResult,
   WidgetSummary
 } from '../shared/types'
 
@@ -18,6 +19,8 @@ const api = {
   aiSetKey: (key: string | null): Promise<AiStatus> => ipcRenderer.invoke('ai:set-key', key),
   aiTest: (candidateKey?: string): Promise<AiTestResult> =>
     ipcRenderer.invoke('ai:test', candidateKey),
+  checkForUpdates: (): Promise<UpdateCheckResult> => ipcRenderer.invoke('updates:check'),
+  openReleasePage: (url: string): Promise<void> => ipcRenderer.invoke('updates:open-release', url),
   // menu bar popover — main pushes, the widget renderer only listens
   onWidgetUpdate: (callback: (summary: WidgetSummary) => void): (() => void) => {
     const handler = (_event: IpcRendererEvent, summary: WidgetSummary): void => callback(summary)

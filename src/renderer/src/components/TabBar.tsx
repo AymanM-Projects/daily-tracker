@@ -21,9 +21,11 @@ const TABS: TabDef[] = [
 interface TabBarProps {
   active: TabId
   onChange: (tab: TabId) => void
+  /** Shows a small dot on the Settings tab. */
+  updateAvailable: boolean
 }
 
-function TabBar({ active, onChange }: TabBarProps): React.JSX.Element {
+function TabBar({ active, onChange, updateAvailable }: TabBarProps): React.JSX.Element {
   return (
     <nav className="tabbar" aria-label="Sections">
       {TABS.map((tab) => {
@@ -45,7 +47,10 @@ function TabBar({ active, onChange }: TabBarProps): React.JSX.Element {
                 transition={{ type: 'spring', stiffness: 450, damping: 35 }}
               />
             )}
-            <Icon size={16} />
+            <span className="tab-icon">
+              <Icon size={16} />
+              {tab.id === 'settings' && updateAvailable && <span className="tab-dot" aria-hidden />}
+            </span>
             <span>{tab.label}</span>
           </motion.button>
         )

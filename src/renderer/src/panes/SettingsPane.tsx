@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import type { AiStatus, McpStatus, ThemeChoice } from '@shared/types'
 import { PRAYER_METHODS, prayerTimes } from '@shared/prayer'
 import { formatClockMinutes, todayKey } from '@shared/time'
+import type { UpdateCheckState } from '../hooks/useUpdateCheck'
 import { useData } from '../state/DataContext'
 import RoutineSheet from '../components/RoutineSheet'
 import { CheckIcon, MoonIcon, SparklesIcon, SunriseIcon, TrashIcon } from '../components/icons'
@@ -12,7 +13,11 @@ type TestState =
 
 type CopyState = { kind: 'idle' } | { kind: 'copied' } | { kind: 'error' }
 
-function SettingsPane(): React.JSX.Element {
+interface SettingsPaneProps {
+  updateCheck: UpdateCheckState
+}
+
+function SettingsPane({ updateCheck }: SettingsPaneProps): React.JSX.Element {
   const { settings, prayer, routines, dispatch } = useData()
   const [status, setStatus] = useState<AiStatus | null>(null)
   const [draftKey, setDraftKey] = useState('')
@@ -22,6 +27,12 @@ function SettingsPane(): React.JSX.Element {
   const [mcpStatus, setMcpStatus] = useState<McpStatus | null>(null)
   const [copyState, setCopyState] = useState<CopyState>({ kind: 'idle' })
   const activeRoutines = routines.filter((r) => r.active).length
+  const {
+    result: updateResult,
+    checking: updateChecking,
+    recheck: recheckUpdate,
+    dismiss
+  } = updateCheck
 
   useEffect(() => {
     void window.api.aiStatus().then(setStatus)
@@ -30,6 +41,13 @@ function SettingsPane(): React.JSX.Element {
   useEffect(() => {
     void window.api.mcpStatus().then(setMcpStatus)
   }, [])
+
+  // Visiting Settings is "seen" — clears the tab-bar dot. Safe to call even
+  // when there's nothing to dismiss yet (no check has resolved, or none was
+  // available); it's just a boolean flip.
+  useEffect(() => {
+    dismiss()
+  }, [dismiss])
 
   // The token is only ever fetched here, on an explicit click — never polled
   // or held in state ambiently, per the same rule ai-config.ts's key follows.
@@ -428,6 +446,58 @@ function SettingsPane(): React.JSX.Element {
           new to-dos, activities, or projects. It can never edit, finish, or delete anything that
           already exists. Bound to this machine only — the token above is the only thing that ever
           leaves it, and only when you copy it out.
+        </p>
+      </div>
+
+      <h2 className="pane-title">Updates</h2>
+      <div className="setting-card">
+        <div className="setting-row">
+          <span className="setting-label">Version</span>
+          {updateResult === null ? (
+            <span className="chip">checking…</span>
+          ) : (
+            <span className="mono">v{updateResult.currentVersion}</span>
+          )}
+        </div>
+
+        <div className="setting-actions">
+          <span className="grow" />
+          <button className="btn-ghost" onClick={recheckUpdate} disabled={updateChecking}>
+            {updateChecking ? 'Checking…' : 'Check for updates'}
+          </button>
+        </div>
+
+        {updateResult?.checked === true &&
+          (updateResult.updateAvailable ? (
+            <>
+              <p className="hint hint-ok">
+                <CheckIcon size={11} /> v{updateResult.latestVersion} is available.
+              </p>
+              <div className="setting-actions">
+                <span className="grow" />
+                <motion.button
+                  className="btn-primary"
+                  onClick={() => void window.api.openReleasePage(updateResult.releaseUrl)}
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.95 }}
+                  transition={{ type: 'spring', stiffness: 500, damping: 25 }}
+                >
+                  Get the update
+                </motion.button>
+              </div>
+            </>
+          ) : (
+            <p className="hint hint-ok">
+              <CheckIcon size={11} /> You&apos;re up to date.
+            </p>
+          ))}
+
+        {updateResult?.checked === false && <p className="hint hint-warn">{updateResult.error}</p>}
+
+        <p className="hint">
+          Checks GitHub for the latest release, on launch and on demand. This build isn&apos;t
+          code-signed, so updates can&apos;t install themselves — quitting the old app and opening
+          the new one is still a manual, one-time right-click → Open.
         </p>
       </div>
     </div>

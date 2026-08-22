@@ -5,6 +5,7 @@ import type {
   AppData,
   McpEntityCreated,
   McpStatus,
+  UpdateCheckResult,
   WidgetSummary
 } from '../shared/types'
 
@@ -15,6 +16,9 @@ export interface Api {
   aiStatus(): Promise<AiStatus>
   aiSetKey(key: string | null): Promise<AiStatus>
   aiTest(candidateKey?: string): Promise<AiTestResult>
+  checkForUpdates(): Promise<UpdateCheckResult>
+  /** Validated against hostname === 'github.com' in main before opening. */
+  openReleasePage(url: string): Promise<void>
   /** Subscribe to menu bar popover updates; returns an unsubscribe function. */
   onWidgetUpdate(callback: (summary: WidgetSummary) => void): () => void
   widgetReady(): Promise<void>
