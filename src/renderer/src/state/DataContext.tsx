@@ -42,7 +42,7 @@ import { elapsedMinutes } from '@shared/timer'
 import { resolveRecurring, ruleFromTask } from '@shared/recurrence'
 import { PLAN_DEFAULTS, planBacklog } from '@shared/plan'
 import { dayAnchors } from '@shared/anchors'
-import { alreadyCarried, carryForward, daysToSweep } from '@shared/carry'
+import { alreadyCarried, carryForward, carryTarget, daysToSweep } from '@shared/carry'
 import { minutesNow, parseHM, shiftDateKey, todayKey } from '@shared/time'
 
 export interface State {
@@ -295,6 +295,7 @@ function applyCarryForward(data: AppData, today: DateKey): AppData {
   if (stale.length === 0) return data
 
   const now = new Date().toISOString()
+  let backlog = data.backlog
   const created: BacklogTask[] = []
   const days = { ...data.days }
 
@@ -302,7 +303,29 @@ function applyCarryForward(data: AppData, today: DateKey): AppData {
     for (const work of carryForward(days[date], date, today)) {
       // second guard behind `carriedForward`: even if a day were somehow swept
       // twice, a block can only ever mint one task
-      if (alreadyCarried([...data.backlog, ...created], work.sourceBlockId)) continue
+      if (alreadyCarried([...backlog, ...created], work.sourceBlockId)) continue
+
+      // an already-open task for the same activity absorbs the missed minutes
+      // instead of getting a same-named sibling — see `carryTarget`
+      const target = carryTarget([...backlog, ...created], work)
+      if (target) {
+        const grown = (t: BacklogTask): BacklogTask =>
+          t.id === target.id
+            ? {
+                ...t,
+                estimateMinutes: (t.estimateMinutes ?? 0) + work.estimateMinutes,
+                carriedFromBlockId: work.sourceBlockId
+              }
+            : t
+        if (backlog.some((t) => t.id === target.id)) {
+          backlog = backlog.map(grown)
+        } else {
+          const idx = created.findIndex((t) => t.id === target.id)
+          created[idx] = grown(created[idx])
+        }
+        continue
+      }
+
       created.push({
         id: crypto.randomUUID(),
         text: work.text,
@@ -319,7 +342,7 @@ function applyCarryForward(data: AppData, today: DateKey): AppData {
     days[date] = { ...days[date], carriedForward: true }
   }
 
-  const swept = { ...data, days, backlog: [...data.backlog, ...created] }
+  const swept = { ...data, days, backlog: [...backlog, ...created] }
   // nothing outstanding, but the days are still marked so they are not re-read
   return created.length === 0 ? swept : replan(swept, today)
 }

@@ -1,6 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import type { BacklogTask, DayData, ScheduleBlock } from './types'
-import { alreadyCarried, carryForward, daysToSweep } from './carry'
+import { alreadyCarried, carryForward, carryTarget, daysToSweep } from './carry'
+
+function task(over: Partial<BacklogTask> = {}): BacklogTask {
+  return {
+    id: 't1',
+    text: 'Deep work',
+    priority: 2,
+    estimateMinutes: 60,
+    dueDate: null,
+    projectId: null,
+    done: false,
+    completedAt: null,
+    createdAt: '2026-08-07T00:00:00.000Z',
+    ...over
+  }
+}
 
 function block(over: Partial<ScheduleBlock> = {}): ScheduleBlock {
   return {
@@ -164,5 +179,40 @@ describe('alreadyCarried', () => {
     expect(alreadyCarried([task], 'b1')).toBe(true)
     expect(alreadyCarried([task], 'b2')).toBe(false)
     expect(alreadyCarried([], 'b1')).toBe(false)
+  })
+})
+
+describe('carryTarget', () => {
+  const work = {
+    text: 'Quran activity',
+    estimateMinutes: 20,
+    priority: 2 as const,
+    dueDate: null,
+    sourceBlockId: 'b2'
+  }
+
+  it('finds an open task with matching text to fold the missed minutes into', () => {
+    const existing = task({ id: 't-open', text: 'Quran activity' })
+    expect(carryTarget([existing], work)).toEqual(existing)
+  })
+
+  it('matches case- and whitespace-insensitively', () => {
+    const existing = task({ id: 't-open', text: '  QURAN Activity  ' })
+    expect(carryTarget([existing], work)).toEqual(existing)
+  })
+
+  it('ignores a trailing Part suffix on either side, same as baseName', () => {
+    const existing = task({ id: 't-open', text: 'Quran activity (Part 2 of 3)' })
+    expect(carryTarget([existing], work)).toEqual(existing)
+  })
+
+  it('does not match a task already marked done — that is a decision, not an oversight', () => {
+    const finished = task({ id: 't-done', text: 'Quran activity', done: true })
+    expect(carryTarget([finished], work)).toBeNull()
+  })
+
+  it('returns null when nothing open matches', () => {
+    const other = task({ id: 't-other', text: 'Reading' })
+    expect(carryTarget([other], work)).toBeNull()
   })
 })

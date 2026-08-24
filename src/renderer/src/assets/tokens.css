@@ -4,6 +4,13 @@
  * the palette is defined — edit here, not in either stylesheet.
  */
 :root {
+  /*
+   * Without this, Chromium renders native form chrome — a <select> dropdown's
+   * own popup list, date pickers, scrollbars — using the OS light default
+   * regardless of the dark colours set below, which is why "Project" showed a
+   * white popup with black option text on an otherwise dark app.
+   */
+  color-scheme: dark;
   --bg: #12131a;
   --surface: #1c1d26;
   --surface-2: #262833;
@@ -96,6 +103,7 @@
  * selectors carry the same body so an explicit choice always wins over the OS.
  */
 :root[data-theme='light'] {
+  color-scheme: light;
   --bg: #f4f5f8;
   --surface: #ffffff;
   --surface-2: #eceef3;
@@ -141,6 +149,7 @@
 
 @media (prefers-color-scheme: light) {
   :root[data-theme='system'] {
+    color-scheme: light;
     --bg: #f4f5f8;
     --surface: #ffffff;
     --surface-2: #eceef3;

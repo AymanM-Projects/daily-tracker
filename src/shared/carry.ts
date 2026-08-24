@@ -88,3 +88,17 @@ export function daysToSweep(days: Record<DateKey, DayData>, today: DateKey): Dat
 export function alreadyCarried(backlog: BacklogTask[], sourceBlockId: string): boolean {
   return backlog.some((t) => t.carriedFromBlockId === sourceBlockId)
 }
+
+/**
+ * An already-open task this carried work should fold into, rather than mint a
+ * sibling copy of the same missed activity. A daily activity left unfinished for
+ * three days running used to leave three near-identical "Quran activity" entries
+ * on the backlog; this makes it one entry whose estimate grows instead.
+ *
+ * Only matches undone tasks — a task marked done is a decision already made, not
+ * something to reopen by piling more minutes onto it.
+ */
+export function carryTarget(backlog: BacklogTask[], work: CarriedWork): BacklogTask | null {
+  const key = baseName(work.text).toLowerCase()
+  return backlog.find((t) => !t.done && baseName(t.text).toLowerCase() === key) ?? null
+}
