@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import type { BacklogTask, DateKey, Priority } from '@shared/types'
-import { formatClock, formatDateLabel, formatMinutes, todayKey } from '@shared/time'
+import type { BacklogTask, DateKey, Priority, RecurringTask } from '@shared/types'
+import { daysUntil, formatClock, formatDateLabel, formatMinutes, todayKey } from '@shared/time'
 import { effectivePriority } from '@shared/priority'
 import { byStart } from '@shared/blocks'
 import { useData } from '../state/DataContext'
@@ -23,6 +23,27 @@ import {
 /** Short forms, because a backlog chip has less room than the Activities card. */
 const SHORT_PRIORITY: Record<Priority, string> = { 1: 'High', 2: 'Med', 3: 'Low' }
 
+type DueFilter = 'all' | 'overdue' | 'today' | 'week' | 'none'
+
+const DUE_FILTER_LABELS: Record<DueFilter, string> = {
+  all: 'Any due date',
+  overdue: 'Overdue',
+  today: 'Due today',
+  week: 'Due this week',
+  none: 'No due date'
+}
+
+/** Buckets a task's due date the same way `dueLabel` reads it — days-until, not the raw string. */
+function matchesDueFilter(task: BacklogTask, filter: DueFilter, today: DateKey): boolean {
+  if (filter === 'all') return true
+  if (filter === 'none') return task.dueDate === null
+  if (task.dueDate === null) return false
+  const delta = daysUntil(today, task.dueDate)
+  if (filter === 'overdue') return delta < 0
+  if (filter === 'today') return delta === 0
+  return delta > 0 && delta <= 7
+}
+
 const listVariants = { hidden: {}, show: { transition: { staggerChildren: 0.045 } } }
 const itemVariants = {
   hidden: { opacity: 0, y: 10 },
@@ -39,6 +60,13 @@ function sortBacklog(tasks: BacklogTask[], today: DateKey): BacklogTask[] {
   )
 }
 
+/** The rule a task is linked to, if any — dangling after a hard-deleted rule. */
+function ruleFor(task: BacklogTask, recurringTasks: RecurringTask[]): RecurringTask | undefined {
+  return task.recurringTaskId
+    ? recurringTasks.find((r) => r.id === task.recurringTaskId)
+    : undefined
+}
+
 function dueLabel(due: DateKey): string {
   const today = todayKey()
   if (due === today) return 'today'
@@ -47,7 +75,7 @@ function dueLabel(due: DateKey): string {
 }
 
 function ChecklistPane(): React.JSX.Element {
-  const { state, today: todayData, backlog, projects, dispatch } = useData()
+  const { state, today: todayData, backlog, projects, recurringTasks, dispatch } = useData()
   const [text, setText] = useState('')
   const [estimate, setEstimate] = useState('')
   const [priority, setPriority] = useState<Priority>(2)
@@ -56,6 +84,8 @@ function ChecklistPane(): React.JSX.Element {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [showDone, setShowDone] = useState(false)
   const [showRecurring, setShowRecurring] = useState(false)
+  const [priorityFilter, setPriorityFilter] = useState<'all' | Priority>('all')
+  const [dueFilter, setDueFilter] = useState<DueFilter>('all')
   const date = state.activeDate
   const today = todayKey()
 
@@ -68,6 +98,17 @@ function ChecklistPane(): React.JSX.Element {
     [backlog, today]
   )
   const done = useMemo(() => backlog.filter((t) => t.done), [backlog])
+
+  const filtersActive = priorityFilter !== 'all' || dueFilter !== 'all'
+  const visible = useMemo(
+    () =>
+      open.filter(
+        (t) =>
+          (priorityFilter === 'all' || effectivePriority(t, today) === priorityFilter) &&
+          matchesDueFilter(t, dueFilter, today)
+      ),
+    [open, priorityFilter, dueFilter, today]
+  )
 
   /**
    * Today's scheduled activity work, as checkable items.
@@ -276,16 +317,68 @@ function ChecklistPane(): React.JSX.Element {
         </>
       )}
 
+      {open.length > 0 && (
+        <div className="filter-bar">
+          <select
+            className="filter-select"
+            value={priorityFilter}
+            onChange={(e) =>
+              setPriorityFilter(
+                e.target.value === 'all' ? 'all' : (Number(e.target.value) as Priority)
+              )
+            }
+            aria-label="Filter by priority"
+          >
+            <option value="all">Any priority</option>
+            <option value="1">{SHORT_PRIORITY[1]}</option>
+            <option value="2">{SHORT_PRIORITY[2]}</option>
+            <option value="3">{SHORT_PRIORITY[3]}</option>
+          </select>
+          <select
+            className="filter-select"
+            value={dueFilter}
+            onChange={(e) => setDueFilter(e.target.value as DueFilter)}
+            aria-label="Filter by due date"
+          >
+            {(Object.keys(DUE_FILTER_LABELS) as DueFilter[]).map((f) => (
+              <option key={f} value={f}>
+                {DUE_FILTER_LABELS[f]}
+              </option>
+            ))}
+          </select>
+          {filtersActive && (
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={() => {
+                setPriorityFilter('all')
+                setDueFilter('all')
+              }}
+              aria-label="Clear filters"
+              title="Clear filters"
+            >
+              <XIcon size={13} />
+            </button>
+          )}
+        </div>
+      )}
+
       {open.length === 0 ? (
         <EmptyState
           icon={<CheckSquareIcon size={20} />}
           title="Nothing left to do"
           hint="Add anything — an assignment, a chore, a someday idea. Give it a time estimate and it gets scheduled into your free time automatically."
         />
+      ) : visible.length === 0 ? (
+        <EmptyState
+          icon={<CheckSquareIcon size={20} />}
+          title="No tasks match these filters"
+          hint="Try a different priority or due date, or clear the filters to see everything."
+        />
       ) : (
         <motion.ul className="list" variants={listVariants} initial="hidden" animate="show">
           <AnimatePresence initial={false}>
-            {open.map((task) => {
+            {visible.map((task) => {
               const at = placedAt.get(task.id)
               return (
                 <motion.li
@@ -325,12 +418,35 @@ function ChecklistPane(): React.JSX.Element {
                           {dueLabel(task.dueDate)}
                         </span>
                       )}
-                      {task.recurringTaskId && (
-                        <span className="chip chip-repeat">
-                          <RepeatIcon size={8} />
-                          repeats
-                        </span>
-                      )}
+                      {(() => {
+                        const rule = ruleFor(task, recurringTasks)
+                        const on = rule?.active ?? false
+                        return (
+                          <button
+                            type="button"
+                            className={on ? 'chip chip-repeat chip-toggle' : 'chip chip-toggle'}
+                            onClick={() =>
+                              rule
+                                ? dispatch({
+                                    type: 'updateRecurringTask',
+                                    task: { ...rule, active: !on }
+                                  })
+                                : dispatch({
+                                    type: 'convertTaskToRecurring',
+                                    taskId: task.id,
+                                    date
+                                  })
+                            }
+                            aria-pressed={on}
+                            aria-label={
+                              on ? `Stop repeating ${task.text}` : `Repeat ${task.text} daily`
+                            }
+                          >
+                            <RepeatIcon size={8} />
+                            {on ? 'repeats' : 'repeat'}
+                          </button>
+                        )
+                      })()}
                       {at ? (
                         <span className="scheduled-at">
                           {at.date === todayKey() ? 'today' : dueLabel(at.date)}{' '}

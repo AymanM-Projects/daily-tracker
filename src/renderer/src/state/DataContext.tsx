@@ -39,7 +39,7 @@ import {
   truncate as truncateGeometry
 } from '@shared/reschedule'
 import { elapsedMinutes } from '@shared/timer'
-import { pendingRules } from '@shared/recurrence'
+import { resolveRecurring, ruleFromTask } from '@shared/recurrence'
 import { PLAN_DEFAULTS, planBacklog } from '@shared/plan'
 import { dayAnchors } from '@shared/anchors'
 import { alreadyCarried, carryForward, daysToSweep } from '@shared/carry'
@@ -85,6 +85,7 @@ export type Action =
     }
   | { type: 'updateRecurringTask'; task: RecurringTask }
   | { type: 'deleteRecurringTask'; id: string }
+  | { type: 'convertTaskToRecurring'; taskId: string; date: DateKey }
   | { type: 'addRoutine'; routine: Omit<Routine, 'id' | 'createdAt'> }
   | { type: 'updateRoutine'; routine: Routine }
   | { type: 'deleteRoutine'; id: string }
@@ -236,28 +237,43 @@ function applyBlockStatus(
  * Only ever called for the real current date — never when browsing history.
  */
 function applyRecurring(data: AppData, date: DateKey): AppData {
-  const due = pendingRules(data.recurringTasks, date, getDay(data, date).recurringApplied)
-  if (due.length === 0) return data
+  const resolutions = resolveRecurring(
+    data.recurringTasks,
+    data.backlog,
+    date,
+    getDay(data, date).recurringApplied
+  )
+  if (resolutions.length === 0) return data
 
   const now = new Date().toISOString()
   // rules now feed the standing backlog, due on the day they fire, rather than a
   // per-day list. `recurringApplied` stays the idempotency record either way.
-  const created: BacklogTask[] = due.map((rule) => ({
-    id: crypto.randomUUID(),
-    text: rule.text,
-    priority: 2,
-    estimateMinutes: rule.estimateMinutes,
-    dueDate: date,
-    projectId: null, // recurring rules aren't given project linkage in this phase
-    done: false,
-    completedAt: null,
-    createdAt: now,
-    recurringTaskId: rule.id
-  }))
+  const created: BacklogTask[] = resolutions
+    .filter((r) => r.existing === null)
+    .map(({ rule }) => ({
+      id: crypto.randomUUID(),
+      text: rule.text,
+      priority: 2,
+      estimateMinutes: rule.estimateMinutes,
+      dueDate: date,
+      projectId: null, // recurring rules aren't given project linkage in this phase
+      done: false,
+      completedAt: null,
+      createdAt: now,
+      recurringTaskId: rule.id
+    }))
 
-  return withDay({ ...data, backlog: [...data.backlog, ...created] }, date, (day) => ({
+  // an undone instance from an earlier firing is still open — pull it forward
+  // to today instead of minting a duplicate. Only dueDate moves; the user's
+  // own edits to text/estimate/priority/project on that instance survive.
+  const refreshIds = new Set(
+    resolutions.filter((r) => r.existing !== null).map((r) => r.existing!.id)
+  )
+  const backlog = data.backlog.map((t) => (refreshIds.has(t.id) ? { ...t, dueDate: date } : t))
+
+  return withDay({ ...data, backlog: [...backlog, ...created] }, date, (day) => ({
     ...day,
-    recurringApplied: [...day.recurringApplied, ...due.map((r) => r.id)]
+    recurringApplied: [...day.recurringApplied, ...resolutions.map((r) => r.rule.id)]
   }))
 }
 
@@ -611,6 +627,27 @@ function reducer(state: State, action: Action): State {
           recurringTasks: state.data.recurringTasks.filter((t) => t.id !== action.id)
         }
       }
+    case 'convertTaskToRecurring': {
+      const task = state.data.backlog.find((t) => t.id === action.taskId)
+      // deleted or finished between the click and this dispatch — nothing to convert
+      if (!task || task.done) return state
+
+      const rule: RecurringTask = {
+        ...ruleFromTask(task),
+        id: crypto.randomUUID(),
+        createdAt: new Date().toISOString()
+      }
+      const withRule = {
+        ...state.data,
+        recurringTasks: [...state.data.recurringTasks, rule],
+        backlog: state.data.backlog.map((t) =>
+          t.id === action.taskId ? { ...t, recurringTaskId: rule.id } : t
+        )
+      }
+      // the link must exist before this runs, or today's own instance isn't
+      // recognised as the rule's "existing" task and gets duplicated on the spot
+      return { ...state, data: applyRecurring(withRule, action.date) }
+    }
     case 'updateJournalEntry':
       return {
         ...state,

@@ -32,6 +32,7 @@ button {
 }
 
 input,
+select,
 textarea {
   font: inherit;
   color: var(--text);
@@ -212,6 +213,10 @@ textarea {
   background: var(--parallel-dim);
 }
 
+.chip-toggle:hover {
+  opacity: 0.85;
+}
+
 /* durations are lowercase units — the default chip uppercasing turns 20m into 20M */
 .chip.chip-est {
   text-transform: none;
@@ -258,6 +263,35 @@ textarea {
   flex: 0 0 128px;
   font-size: 11px;
   font-family: var(--font-mono);
+}
+
+/* narrows which backlog tasks the list below shows — display only, not persisted */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: -2px 0 2px;
+}
+
+.filter-select {
+  flex: 1;
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  transition: border-color 0.2s;
+}
+
+.filter-select:hover {
+  border-color: var(--border-strong);
+}
+
+.filter-select:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 
 /* where the planner actually put this task */

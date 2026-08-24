@@ -1,4 +1,4 @@
-import type { DateKey, RecurringTask } from './types'
+import type { BacklogTask, DateKey, RecurringTask } from './types'
 import { daysInMonth, weekdayOf } from './time'
 
 /**
@@ -34,4 +34,46 @@ export function pendingRules(
 ): RecurringTask[] {
   const seen = new Set(applied)
   return rules.filter((rule) => !seen.has(rule.id) && dueOn(rule, date))
+}
+
+export interface RecurringResolution {
+  rule: RecurringTask
+  /** The still-open task this rule already created, if one exists. */
+  existing: BacklogTask | null
+}
+
+/**
+ * What each pending rule needs: a fresh `BacklogTask` when nothing is
+ * outstanding, or — if an earlier undone instance of the same rule is still
+ * sitting in the backlog — that instance, so the caller can bring it forward
+ * to today instead of minting a duplicate.
+ */
+export function resolveRecurring(
+  rules: RecurringTask[],
+  backlog: BacklogTask[],
+  date: DateKey,
+  applied: string[]
+): RecurringResolution[] {
+  return pendingRules(rules, date, applied).map((rule) => ({
+    rule,
+    existing: backlog.find((t) => t.recurringTaskId === rule.id && !t.done) ?? null
+  }))
+}
+
+/**
+ * The rule a one-off task turns into when marked recurring inline. Daily,
+ * because the checklist toggle has no UI for picking weekly/monthly — the
+ * Repeating sheet can fine-tune it afterward since it's the same record.
+ */
+export function ruleFromTask(
+  task: Pick<BacklogTask, 'text' | 'estimateMinutes'>
+): Omit<RecurringTask, 'id' | 'createdAt'> {
+  return {
+    text: task.text,
+    estimateMinutes: task.estimateMinutes,
+    freq: 'daily',
+    weekdays: [],
+    dayOfMonth: 1,
+    active: true
+  }
 }

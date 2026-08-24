@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { RecurringTask } from './types'
-import { dueOn, pendingRules } from './recurrence'
+import type { BacklogTask, RecurringTask } from './types'
+import { dueOn, pendingRules, resolveRecurring, ruleFromTask } from './recurrence'
 
 function rule(over: Partial<RecurringTask> = {}): RecurringTask {
   return {
@@ -12,6 +12,21 @@ function rule(over: Partial<RecurringTask> = {}): RecurringTask {
     dayOfMonth: 1,
     active: true,
     createdAt: '2026-01-01T00:00:00.000Z',
+    ...over
+  }
+}
+
+function task(over: Partial<BacklogTask> = {}): BacklogTask {
+  return {
+    id: 't1',
+    text: 'Take out the bins',
+    priority: 2,
+    estimateMinutes: 10,
+    dueDate: null,
+    projectId: null,
+    done: false,
+    completedAt: null,
+    createdAt: '2026-08-01T00:00:00.000Z',
     ...over
   }
 }
@@ -89,5 +104,67 @@ describe('pendingRules', () => {
 
   it('handles an empty rule set', () => {
     expect(pendingRules([], '2026-08-06', [])).toEqual([])
+  })
+})
+
+describe('resolveRecurring', () => {
+  it('resolves a due rule with no matching task as a fresh instance', () => {
+    const a = rule({ id: 'a' })
+    const resolved = resolveRecurring([a], [], '2026-08-06', [])
+    expect(resolved).toEqual([{ rule: a, existing: null }])
+  })
+
+  it('resolves a due rule with an undone instance as that instance, not a new one', () => {
+    const a = rule({ id: 'a' })
+    const open = task({ id: 't-open', recurringTaskId: 'a', dueDate: '2026-08-01' })
+    const resolved = resolveRecurring([a], [open], '2026-08-06', [])
+    expect(resolved).toEqual([{ rule: a, existing: open }])
+  })
+
+  it('treats a done instance as nothing outstanding — mints fresh rather than reusing it', () => {
+    const a = rule({ id: 'a' })
+    const finished = task({ id: 't-done', recurringTaskId: 'a', done: true })
+    const resolved = resolveRecurring([a], [finished], '2026-08-06', [])
+    expect(resolved).toEqual([{ rule: a, existing: null }])
+  })
+
+  it('does not match a task belonging to a different rule', () => {
+    const a = rule({ id: 'a' })
+    const otherRulesTask = task({ id: 't-other', recurringTaskId: 'b' })
+    const resolved = resolveRecurring([a], [otherRulesTask], '2026-08-06', [])
+    expect(resolved).toEqual([{ rule: a, existing: null }])
+  })
+
+  it('excludes a rule already applied to that day, same as pendingRules', () => {
+    const a = rule({ id: 'a' })
+    expect(resolveRecurring([a], [], '2026-08-06', ['a'])).toEqual([])
+  })
+
+  it('resolves multiple due rules independently', () => {
+    const a = rule({ id: 'a' })
+    const b = rule({ id: 'b' })
+    const openForA = task({ id: 't-a', recurringTaskId: 'a' })
+    const resolved = resolveRecurring([a, b], [openForA], '2026-08-06', [])
+    expect(resolved).toEqual([
+      { rule: a, existing: openForA },
+      { rule: b, existing: null }
+    ])
+  })
+})
+
+describe('ruleFromTask', () => {
+  it('builds a daily, active rule seeded from the task text and estimate', () => {
+    expect(ruleFromTask(task({ text: 'Water the plants', estimateMinutes: 5 }))).toEqual({
+      text: 'Water the plants',
+      estimateMinutes: 5,
+      freq: 'daily',
+      weekdays: [],
+      dayOfMonth: 1,
+      active: true
+    })
+  })
+
+  it('carries a null estimate through unchanged', () => {
+    expect(ruleFromTask(task({ estimateMinutes: null })).estimateMinutes).toBeNull()
   })
 })
